@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, PanelRight, Send } from "lucide-react";
+import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, PanelRight, Power, Send } from "lucide-react";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { RickyFace } from "./components/RickyFace";
 import { newEntry, RickyRealtimeClient, type MouthShape, type RickyConnectionState, type RickyMood, type TranscriptEntry } from "./lib/realtime";
@@ -16,19 +16,26 @@ export default function App() {
   const [artifactFullscreen, setArtifactFullscreen] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [showTypeInput, setShowTypeInput] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
   const [mouthShape, setMouthShape] = useState<MouthShape>({ open: 0, width: 0.18, round: 0, teeth: 0 });
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([
-    newEntry("system", "Ricky is ready. Connect voice, then talk naturally."),
+    newEntry("system", "Ricky is ready. Connect, then talk naturally."),
   ]);
-  const [status, setStatus] = useState("Idle");
+  const [status, setStatus] = useState("Click Connect, then talk or type.");
   const [textPrompt, setTextPrompt] = useState("");
   const clientRef = useRef<RickyRealtimeClient | null>(null);
 
   const isConnected = connectionState === "connected";
 
   async function connect() {
+    setShowLog(true);
+    setMicMuted(false);
     const client = new RickyRealtimeClient({
-      onConnectionState: setConnectionState,
+      onConnectionState: (state) => {
+        setConnectionState(state);
+        if (state === "error") setShowLog(true);
+        if (state !== "connected") setMicMuted(false);
+      },
       onMood: setMood,
       onMouthShape: setMouthShape,
       onTranscript: (entry) => setTranscript((items) => [entry, ...items].slice(0, 80)),
@@ -44,6 +51,7 @@ export default function App() {
           setArtifactFullscreen(false);
           setShowLog(false);
           setShowTypeInput(false);
+          setMicMuted(false);
         } else {
           setArtifactVisible(true);
         }
@@ -61,7 +69,20 @@ export default function App() {
   function disconnect() {
     clientRef.current?.disconnect();
     clientRef.current = null;
-    setStatus("Disconnected");
+    setMicMuted(false);
+    setConnectionState("idle");
+    setMood("idle");
+    setStatus("Disconnected. Click Connect to reconnect.");
+  }
+
+  function toggleMute() {
+    if (!isConnected) {
+      setStatus("Click Connect first, then mute/unmute.");
+      return;
+    }
+    const nextMuted = !micMuted;
+    setMicMuted(nextMuted);
+    clientRef.current?.setMuted(nextMuted);
   }
 
   async function switchMode(nextMode: RickyMode) {
@@ -82,9 +103,13 @@ export default function App() {
   function sendTextPrompt() {
     const trimmed = textPrompt.trim();
     if (!trimmed) return;
-    clientRef.current?.sendText(trimmed);
+    if (!clientRef.current?.isConnected) {
+      setStatus("Click Connect first, then type.");
+      setShowLog(true);
+      return;
+    }
+    clientRef.current.sendText(trimmed);
     setTextPrompt("");
-    setShowTypeInput(false);
   }
 
   if (mode === "computer") {
@@ -115,6 +140,14 @@ export default function App() {
         </section>
 
         <footer className="bottom-console">
+          <p
+            className={`status-banner status-${connectionState}`}
+            role="status"
+            aria-live="polite"
+          >
+            {status}
+          </p>
+
           {showTypeInput ? (
             <section className="prompt-box">
               <input
@@ -124,7 +157,7 @@ export default function App() {
                   if (event.key === "Enter") sendTextPrompt();
                 }}
                 autoFocus
-                placeholder="Type to Ricky..."
+                placeholder={isConnected ? "Type to Ricky..." : "Click Connect first, then type..."}
               />
               <button onClick={sendTextPrompt} aria-label="Send typed prompt" title="Send typed prompt">
                 <Send size={15} />
@@ -134,17 +167,31 @@ export default function App() {
 
           <section className="control-strip">
             <button
-              className={isConnected ? "simple-button active" : "simple-button"}
+              className={isConnected ? "simple-button active" : connectionState === "error" ? "simple-button danger" : "simple-button"}
               onClick={isConnected ? disconnect : connect}
               disabled={connectionState === "connecting"}
-              aria-label={isConnected ? "Disconnect voice" : "Connect voice"}
-              title={isConnected ? "Disconnect voice" : "Connect voice"}
+              aria-label={isConnected ? "Disconnect" : "Connect"}
+              title={isConnected ? "Disconnect" : "Connect"}
             >
-              {isConnected ? <MicOff size={16} /> : <Mic size={16} />}
+              <Power size={16} />
+            </button>
+            <button
+              className={micMuted ? "simple-button danger active" : "simple-button"}
+              onClick={toggleMute}
+              disabled={!isConnected}
+              aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
+              title={micMuted ? "Unmute mic" : "Mute mic"}
+            >
+              {micMuted ? <MicOff size={16} /> : <Mic size={16} />}
             </button>
             <button
               className={showTypeInput ? "simple-button active" : "simple-button"}
-              onClick={() => setShowTypeInput((value) => !value)}
+              onClick={() => {
+                setShowTypeInput((value) => !value);
+                if (!isConnected && connectionState !== "connecting") {
+                  setStatus("Click Connect first, then type.");
+                }
+              }}
               aria-label="Type to Ricky"
               title="Type to Ricky"
             >

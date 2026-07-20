@@ -504,7 +504,10 @@ async function createWindow() {
   mainWindow = win;
 
   win.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "media");
+    callback(permission === "media" || permission === "mediaKeySystem" || permission === "display-capture");
+  });
+  win.webContents.session.setPermissionCheckHandler((_webContents, permission) => {
+    return permission === "media" || permission === "mediaKeySystem" || permission === "display-capture";
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -873,7 +876,7 @@ async function webSearch(args) {
       query: String(args.query || ""),
       type: "auto",
       numResults: Math.max(1, Math.min(10, Number(args.numResults || 5))),
-      contents: { text: { maxCharacters: 900 } },
+      contents: { highlights: true },
     }),
   });
 
@@ -903,7 +906,10 @@ function formatSearchMarkdown(query, results) {
     const title = cleanMarkdownText(result.title || result.url || `Result ${index + 1}`);
     const url = String(result.url || "");
     const source = cleanMarkdownText(result.author || hostname(url) || "Source");
-    const text = cleanMarkdownText(result.text || result.summary || "").slice(0, 700);
+    const highlightText = Array.isArray(result.highlights)
+      ? result.highlights.map((item) => cleanMarkdownText(item)).filter(Boolean).join(" … ")
+      : "";
+    const text = (highlightText || cleanMarkdownText(result.text || result.summary || "")).slice(0, 700);
     const published = result.publishedDate ? `\n- Published: ${cleanMarkdownText(result.publishedDate)}` : "";
     const link = url ? `[Open source](${url})` : "Source link unavailable";
 

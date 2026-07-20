@@ -319,6 +319,35 @@ button:disabled {
   padding: 12px 28px 18px;
 }
 
+.status-banner {
+  width: min(420px, 100%);
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  color: #c9d2e3;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.status-banner.status-connecting {
+  color: #d7efff;
+  border-color: rgba(125, 223, 255, 0.35);
+}
+
+.status-banner.status-connected {
+  color: #d8ffe8;
+  border-color: rgba(110, 220, 160, 0.4);
+}
+
+.status-banner.status-error {
+  color: #ffd4da;
+  border-color: rgba(220, 90, 110, 0.45);
+  background: rgba(120, 28, 48, 0.28);
+}
+
 .prompt-box {
   display: grid;
   width: min(380px, 100%);
@@ -370,7 +399,7 @@ button:disabled {
 .control-strip {
   display: grid;
   width: max-content;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
 }
 

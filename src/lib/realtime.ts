@@ -59,6 +59,7 @@ export class RickyRealtimeClient {
   private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
   private micStream: MediaStream | null = null;
+  private remoteAudio: HTMLAudioElement | null = null;
   private callbacks: RealtimeCallbacks;
   private currentAssistantText = "";
   private toolSpecs: RickyToolSpec[] = [];
@@ -67,29 +68,54 @@ export class RickyRealtimeClient {
   private outputAnalyser: AnalyserNode | null = null;
   private outputMeterFrame = 0;
   private smoothedMouthShape: MouthShape = silentMouthShape();
+  private preserveErrorState = false;
+  private muted = false;
 
   constructor(callbacks: RealtimeCallbacks) {
     this.callbacks = callbacks;
   }
 
+  get isConnected(): boolean {
+    return this.dc?.readyState === "open";
+  }
+
+  get isMuted(): boolean {
+    return this.muted;
+  }
+
   async connect(): Promise<void> {
     if (this.pc) return;
+    this.preserveErrorState = false;
+    this.muted = false;
     this.callbacks.onConnectionState("connecting");
     this.callbacks.onMood("thinking");
-    this.callbacks.onStatus("Minting a Realtime client secret.");
+    this.callbacks.onStatus("Connecting to Ricky…");
 
     try {
       this.toolSpecs = await window.ricky.getToolSpecs();
+      this.callbacks.onStatus("Minting a Realtime client secret.");
       const token = await window.ricky.createRealtimeToken();
       const pc = new RTCPeerConnection();
       const audio = document.createElement("audio");
       audio.autoplay = true;
+      audio.setAttribute("playsinline", "true");
+      audio.style.display = "none";
+      document.body.appendChild(audio);
+      this.remoteAudio = audio;
 
       pc.ontrack = (event) => {
-        audio.srcObject = event.streams[0];
-        this.startOutputMeter(event.streams[0]);
+        const [stream] = event.streams;
+        if (!stream) return;
+        audio.srcObject = stream;
+        void audio.play().catch((error) => {
+          this.callbacks.onStatus(
+            `Audio playback blocked: ${error instanceof Error ? error.message : String(error)}. Click Connect again after interacting with the window.`,
+          );
+        });
+        this.startOutputMeter(stream);
       };
 
+      this.callbacks.onStatus("Requesting microphone access…");
       this.micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -97,18 +123,29 @@ export class RickyRealtimeClient {
           autoGainControl: true,
         },
       });
-      pc.addTrack(this.micStream.getAudioTracks()[0], this.micStream);
+      const micTrack = this.micStream.getAudioTracks()[0];
+      if (!micTrack) {
+        throw new Error("No microphone track was available. Check Windows Privacy → Microphone.");
+      }
+      micTrack.enabled = true;
+      pc.addTrack(micTrack, this.micStream);
 
       const dc = pc.createDataChannel("oai-events");
       dc.addEventListener("open", () => {
         this.callbacks.onConnectionState("connected");
         this.callbacks.onMood("idle");
-        this.callbacks.onStatus("Ricky is live. Start talking naturally.");
+        this.callbacks.onStatus("Ricky is live. Talk naturally, mute the mic, or use Keyboard.");
+      });
+      dc.addEventListener("close", () => {
+        if (this.pc) {
+          this.callbacks.onStatus("Realtime data channel closed.");
+        }
       });
       dc.addEventListener("message", (event) => {
         void this.handleServerEvent(event.data);
       });
 
+      this.callbacks.onStatus("Negotiating WebRTC session…");
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -133,30 +170,64 @@ export class RickyRealtimeClient {
       this.pc = pc;
       this.dc = dc;
     } catch (error) {
+      const message = formatConnectError(error);
+      this.preserveErrorState = true;
       this.callbacks.onConnectionState("error");
       this.callbacks.onMood("error");
-      this.callbacks.onStatus(error instanceof Error ? error.message : String(error));
+      this.callbacks.onStatus(message);
       this.disconnect();
     }
   }
 
   disconnect(): void {
+    this.muted = false;
     this.dc?.close();
     this.pc?.close();
     this.micStream?.getTracks().forEach((track) => track.stop());
+    if (this.remoteAudio) {
+      this.remoteAudio.pause();
+      this.remoteAudio.srcObject = null;
+      this.remoteAudio.remove();
+      this.remoteAudio = null;
+    }
     this.stopOutputMeter();
     this.dc = null;
     this.pc = null;
     this.micStream = null;
     this.currentAssistantText = "";
+    if (this.preserveErrorState) {
+      this.preserveErrorState = false;
+      this.callbacks.onConnectionState("error");
+      this.callbacks.onMood("error");
+      this.callbacks.onMouthShape(silentMouthShape());
+      return;
+    }
     this.callbacks.onConnectionState("idle");
     this.callbacks.onMood("idle");
     this.callbacks.onMouthShape(silentMouthShape());
   }
 
+  setMuted(muted: boolean): void {
+    if (!this.isConnected) {
+      this.callbacks.onStatus("Connect first before muting the mic.");
+      return;
+    }
+    this.muted = muted;
+    this.micStream?.getAudioTracks().forEach((track) => {
+      track.enabled = !muted;
+    });
+    if (muted) {
+      this.sendEvent({ type: "input_audio_buffer.clear" });
+      this.callbacks.onStatus("Mic muted. Unmute to talk, or use Keyboard.");
+    } else {
+      this.callbacks.onMood("idle");
+      this.callbacks.onStatus("Mic unmuted. Talk naturally.");
+    }
+  }
+
   sendText(text: string): void {
     if (!this.dc || this.dc.readyState !== "open") {
-      this.callbacks.onStatus("Connect Ricky before sending a text prompt.");
+      this.callbacks.onStatus("Click Connect first, then type.");
       return;
     }
     this.callbacks.onTranscript(newEntry("user", text));
@@ -182,7 +253,7 @@ export class RickyRealtimeClient {
     }
 
     if (event.type === "input_audio_buffer.speech_started") {
-      this.callbacks.onMood("listening");
+      if (!this.muted) this.callbacks.onMood("listening");
       return;
     }
 
@@ -307,6 +378,9 @@ export class RickyRealtimeClient {
     this.stopOutputMeter();
 
     const audioContext = new AudioContext();
+    void audioContext.resume().catch(() => {
+      // Browsers may keep AudioContext suspended until a gesture; metering is optional.
+    });
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
@@ -403,6 +477,17 @@ export function newEntry(role: TranscriptEntry["role"], text: string): Transcrip
     text,
     at: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
   };
+}
+
+function formatConnectError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/NotAllowedError|Permission denied|permission/i.test(message)) {
+    return "Microphone permission denied. Allow mic access for Electron in Windows Settings → Privacy → Microphone, then click Mic again.";
+  }
+  if (/NotFoundError|Requested device not found/i.test(message)) {
+    return "No microphone found. Plug one in, then click Mic again.";
+  }
+  return message;
 }
 
 function safeParseEvent(raw: string): ServerEvent {
