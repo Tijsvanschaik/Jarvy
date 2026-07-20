@@ -5,6 +5,9 @@ export const IPC_CHANNELS = {
   sessionClose: "session:close",
   sessionAssistantSaid: "session:assistantSaid",
   sessionToggleRequested: "session:toggleRequested",
+  audioChunk: "audio:chunk",
+  audioCaptureState: "audio:captureState",
+  transcriptAppended: "transcript:appended",
   toolCall: "tool:call",
   toolResult: "tool:result",
   opsState: "ops:state",
@@ -45,6 +48,34 @@ export const assistantSaidPayloadSchema = z.object({
   at: z.string().min(1),
 });
 
+export const audioChunkPayloadSchema = z
+  .object({
+    wav: z.custom<ArrayBuffer>(
+      (value) => value instanceof ArrayBuffer && value.byteLength >= 44 && value.byteLength <= 64 * 1024 * 1024,
+      "Expected a bounded WAV ArrayBuffer.",
+    ),
+    tsStart: z.number().finite().nonnegative(),
+    tsEnd: z.number().finite().nonnegative(),
+  })
+  .refine((value) => value.tsEnd > value.tsStart, "Audio chunk end must follow its start.");
+
+export const captureStateSchema = z.object({
+  capture: z.enum(["stopped", "starting", "capturing", "muted", "error"]),
+  vadSpeech: z.boolean(),
+  deviceId: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const transcriptEntryEventSchema = z.object({
+  id: z.string().min(1),
+  tsStart: z.number().finite().nonnegative(),
+  tsEnd: z.number().finite().nonnegative(),
+  text: z.string().min(1),
+  source: z.enum(["room", "assistant"]),
+  block: z.string().optional(),
+  chunkFile: z.string().optional(),
+});
+
 export const toolCallPayloadSchema = z.object({
   name: z.string().min(1),
   arguments: z.record(z.string(), z.unknown()),
@@ -56,18 +87,29 @@ export const toolResultEventSchema = z.object({
 });
 
 export const opsStateEventSchema = z.object({
-  block: z.number().int().nonnegative(),
+  block: z.string().min(1),
   active: z.boolean(),
+  capture: captureStateSchema,
+  queue: z.object({
+    depth: z.number().int().nonnegative(),
+    active: z.number().int().nonnegative(),
+    lastError: z.string().optional(),
+    oldestPendingTs: z.number().nonnegative().optional(),
+  }),
+  warnings: z.array(z.string()),
 });
 
 export const opsSetBlockPayloadSchema = z.object({
-  block: z.number().int().nonnegative(),
+  block: z.string().trim().min(1),
 });
 
 export type SessionActivatePayload = z.infer<typeof sessionActivatePayloadSchema>;
 export type SessionActivateResult = z.infer<typeof sessionActivateResultSchema>;
 export type SessionClosePayload = z.infer<typeof sessionClosePayloadSchema>;
 export type AssistantSaidPayload = z.infer<typeof assistantSaidPayloadSchema>;
+export type AudioChunkPayload = z.infer<typeof audioChunkPayloadSchema>;
+export type CaptureState = z.infer<typeof captureStateSchema>;
+export type TranscriptEntryEvent = z.infer<typeof transcriptEntryEventSchema>;
 export type ToolCallPayload = z.infer<typeof toolCallPayloadSchema>;
 export type ToolResultEvent = z.infer<typeof toolResultEventSchema>;
 export type OpsStateEvent = z.infer<typeof opsStateEventSchema>;

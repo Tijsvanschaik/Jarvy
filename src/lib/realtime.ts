@@ -4,10 +4,14 @@ import type {
   RickyToolCall,
   RickyToolResult,
   RickyToolSpec,
-  TranscriptEntry,
 } from "../shared/types";
 
-export type { TranscriptEntry } from "../shared/types";
+export type RealtimeTranscriptEntry = {
+  id: string;
+  role: "user" | "ricky" | "system" | "tool";
+  text: string;
+  at: string;
+};
 
 export type RickyConnectionState = "idle" | "connecting" | "connected" | "error";
 export type RickyMood = "idle" | "listening" | "thinking" | "speaking" | "working" | "error";
@@ -23,12 +27,13 @@ export type RealtimeCallbacks = {
   onConnectionState: (state: RickyConnectionState) => void;
   onMood: (mood: RickyMood) => void;
   onMouthShape: (shape: MouthShape) => void;
-  onTranscript: (entry: TranscriptEntry) => void;
+  onTranscript: (entry: RealtimeTranscriptEntry) => void;
   onArtifact: (artifact: RickyArtifact) => void;
   onMode: (mode: "display" | "computer") => void;
   onStatus: (message: string) => void;
   onThumbnailReady: () => void;
   onActivity: () => void;
+  onOutputPlayback: (playing: boolean) => void;
 };
 
 type ServerEvent = {
@@ -62,6 +67,7 @@ export class RickyRealtimeClient {
   private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
   private micStream: MediaStream | null = null;
+  private ownsMicStream = false;
   private remoteAudio: HTMLAudioElement | null = null;
   private callbacks: RealtimeCallbacks;
   private currentAssistantText = "";
@@ -86,7 +92,7 @@ export class RickyRealtimeClient {
     return this.muted;
   }
 
-  async connect(activation: SessionActivateResult): Promise<void> {
+  async connect(activation: SessionActivateResult, injectedStream?: MediaStream): Promise<void> {
     if (this.pc) return;
     this.preserveErrorState = false;
     this.muted = false;
@@ -117,14 +123,17 @@ export class RickyRealtimeClient {
         this.startOutputMeter(stream);
       };
 
-      this.callbacks.onStatus("Requesting microphone access…");
-      this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      this.callbacks.onStatus(injectedStream ? "Using shared microphone branch…" : "Requesting microphone access…");
+      this.ownsMicStream = !injectedStream;
+      this.micStream =
+        injectedStream ??
+        (await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: true,
+            channelCount: 1,
+          },
+        }));
       const micTrack = this.micStream.getAudioTracks()[0];
       if (!micTrack) {
         throw new Error("No microphone track was available. Check Windows Privacy → Microphone.");
@@ -183,9 +192,10 @@ export class RickyRealtimeClient {
 
   disconnect(): void {
     this.muted = false;
+    this.callbacks.onOutputPlayback(false);
     this.dc?.close();
     this.pc?.close();
-    this.micStream?.getTracks().forEach((track) => track.stop());
+    if (this.ownsMicStream) this.micStream?.getTracks().forEach((track) => track.stop());
     if (this.remoteAudio) {
       this.remoteAudio.pause();
       this.remoteAudio.srcObject = null;
@@ -196,6 +206,7 @@ export class RickyRealtimeClient {
     this.dc = null;
     this.pc = null;
     this.micStream = null;
+    this.ownsMicStream = false;
     this.currentAssistantText = "";
     if (this.preserveErrorState) {
       this.preserveErrorState = false;
@@ -270,11 +281,13 @@ export class RickyRealtimeClient {
     if (event.type === "response.audio.delta" || event.type === "response.output_audio.delta") {
       this.callbacks.onActivity();
       this.callbacks.onMood("speaking");
+      this.callbacks.onOutputPlayback(true);
       return;
     }
 
     if (event.type === "response.output_audio.done" || event.type === "response.audio.done") {
       if (!this.toolRunning) this.callbacks.onMood("idle");
+      this.callbacks.onOutputPlayback(false);
       return;
     }
 
@@ -477,7 +490,7 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-export function newEntry(role: TranscriptEntry["role"], text: string): TranscriptEntry {
+export function newEntry(role: RealtimeTranscriptEntry["role"], text: string): RealtimeTranscriptEntry {
   return {
     id: crypto.randomUUID(),
     role,

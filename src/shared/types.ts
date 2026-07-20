@@ -1,17 +1,19 @@
-export type TranscriptRole = "user" | "ricky" | "system" | "tool";
-
 export type TranscriptEntry = {
   id: string;
-  role: TranscriptRole;
+  tsStart: number;
+  tsEnd: number;
   text: string;
-  at: string;
+  source: "room" | "assistant";
+  block?: string;
+  chunkFile?: string;
 };
 
 export type BlockSummary = {
   id: string;
-  block: number;
+  block: string;
   summary: string;
   createdAt: string;
+  coversUntil: number;
 };
 
 export type OogstNotitie = {

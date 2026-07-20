@@ -3,6 +3,10 @@ export type RickyConfig = {
   realtimeVoice: string;
   activationShortcut: string;
   inactivityMs: number;
+  transcriptionModel: string;
+  transcriptionFallbackModel: string;
+  transcriptionVocabulary: string[];
+  summaryModel: string;
   features: {
     computerUse: boolean;
   };
@@ -19,6 +23,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RickyConfig {
     realtimeVoice: env.RICKY_REALTIME_VOICE || "cedar",
     activationShortcut: env.RICKY_ACTIVATION_SHORTCUT || "F9",
     inactivityMs: 20_000,
+    transcriptionModel: env.RICKY_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe",
+    transcriptionFallbackModel: env.RICKY_TRANSCRIPTION_FALLBACK_MODEL || "whisper-1",
+    transcriptionVocabulary: (env.RICKY_TRANSCRIPTION_NAMES || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+    summaryModel: env.RICKY_SUMMARY_MODEL || "gpt-4.1-mini",
     features: {
       computerUse: enabled(env.RICKY_ENABLE_COMPUTER_USE),
     },
