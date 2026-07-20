@@ -1,6 +1,6 @@
 # Ricky
 
-Ricky is a local Electron desktop participant with activation-only realtime voice, a visual artifact panel, image generation, web search, notes, and records. Development is Windows-first; the later production target is macOS.
+Ricky is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, a visual artifact panel, image generation, web search, notes, and records. Development is Windows-first; the later production target is macOS.
 
 It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 
@@ -13,6 +13,7 @@ It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 - Optional Exa-powered web search.
 - Local notes and records stored at runtime under `data/`.
 - Global `F9` activation toggle (configurable with `RICKY_ACTIVATION_SHORTCUT`) plus the same lifecycle from the power button.
+- Explicit-consent shared microphone capture with local PCM/VAD chunking, persistent transcription queue, and daily JSONL transcripts.
 - Computer-use code is retained but its UI and Realtime tools are disabled by default.
 
 ## Requirements
@@ -44,9 +45,17 @@ EXA_API_KEY=your_exa_api_key_here
 
 ## Activation flow
 
-Press `F9` or click the power button. The renderer immediately shows thinking while the main process reloads prompts, builds bounded context, and mints an ephemeral token through the GA `/v1/realtime/client_secrets` endpoint. Only then does the renderer open the existing WebRTC microphone session.
+Press `F9` or click the power button. That explicit action starts the shared room microphone (if it is not already running), while the main process reloads prompts, builds bounded context, and mints an ephemeral token through the GA `/v1/realtime/client_secrets` endpoint. Realtime receives a cloned microphone track.
 
-A second toggle closes the peer connection, data channel, microphone tracks, and main-process session state. A resettable 20-second inactivity timer does the same. Ricky never opens Realtime without explicit activation and has no wake word.
+A second toggle closes the peer connection, data channel, and cloned Realtime track without stopping ambient room capture. A resettable 20-second inactivity timer does the same. Ricky never opens Realtime without explicit activation and has no wake word.
+
+## Room transcription
+
+Room capture is mono 16 kHz PCM internally and writes PCM16 WAV chunks under `data/audio/chunks/` before queueing any API request. The explicit thresholds are 300 ms pre-roll, 700 ms closing silence after a minimum 5-second chunk, 30-second hard cap, and a minimum one second of detected speech. Ricky output pauses ambient chunking and capture resumes 500 ms after playback.
+
+This milestone ships an explicit energy-based VAD fallback. It does not claim Silero behavior. A local `@ricky0123/vad-web`/ONNX asset integration remains follow-up because adding it here would make Electron/Vite asset loading less reliable; there is no CDN dependency.
+
+Queue jobs are persisted, recovered after restart, processed FIFO with concurrency two, retried for transient failures, and transcribed in Dutch with `gpt-4o-mini-transcribe`. `whisper-1` is used only for model-related unsupported/not-found responses. Add event-specific names with comma-separated `RICKY_TRANSCRIPTION_NAMES`.
 
 ## Prompts
 
@@ -91,7 +100,7 @@ The Electron build bundles the typed preload and modular main foundations with e
 
 ## Runtime Data
 
-The app creates a repo-local `data/` directory for runtime prompts, notes, records, generated images, and thumbnail-board state. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
+The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, notes, records, generated images, and thumbnail-board state. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
 
 Do not commit:
 
@@ -120,7 +129,7 @@ Then verify that no local secrets or runtime data are staged.
 
 ## Next milestone
 
-Always-on transcription and the operator UI are deliberately not part of this vertical slice. The exact next milestone is: **shared mic + AudioWorklet/VAD + disk-backed transcript queue**.
+The exact next milestone is: **full operator BrowserWindow + signal board/tool registry**.
 
 ## License
 

@@ -11,32 +11,54 @@ dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 const runtime = require(path.join(process.cwd(), ".electron-build", "runtime.cjs"));
 const config = runtime.loadConfig(process.env);
 const runtimePaths = runtime.resolveRuntimePaths(process.cwd());
+const dataDir = runtimePaths.dataDir;
 const promptLoader = new runtime.PromptLoader(runtimePaths);
-const assistantTranscript = [];
-let currentBlock = 0;
+const configStore = runtime.ConfigStore.inDataDir(dataDir);
+const opsWarnings = [];
+let captureState = { capture: "stopped", vadSpeech: false };
+let queueState = { depth: 0, active: 0 };
+const transcriptStore = new runtime.TranscriptStore(path.join(dataDir, "transcript"), (warning) => {
+  opsWarnings.push(warning);
+  if (opsWarnings.length > 50) opsWarnings.shift();
+  broadcastOpsState();
+});
+const summaryStore = runtime.SummaryStore.inDataDir(dataDir);
+const notesStore = new runtime.NotesStore(path.join(dataDir, "ricky-db.json"));
 const contextBuilder = new runtime.ContextBuilder(promptLoader, {
-  summaries: { list: async () => [] },
-  transcript: { recent: async () => assistantTranscript.slice(-80) },
-  notes: {
-    list: async () => {
-      const db = await readDb();
-      return db.notes.map((note) => ({
-        id: String(note.id || crypto.randomUUID()),
-        text: String(note.text || ""),
-        tags: Array.isArray(note.tags) ? note.tags.map(String) : [],
-        createdAt: String(note.createdAt || new Date().toISOString()),
-      }));
-    },
-  },
+  summaries: summaryStore,
+  transcript: transcriptStore,
+  notes: notesStore,
 });
 const sessionOrchestrator = new runtime.SessionOrchestrator(
   config,
   contextBuilder,
   () => process.env.OPENAI_API_KEY,
 );
+const transcriptionTransport = new runtime.OpenAITranscriptionTransport(
+  () => process.env.OPENAI_API_KEY,
+  fetch,
+  config.transcriptionModel,
+  config.transcriptionFallbackModel,
+);
+const transcriptionQueue = new runtime.TranscriptionQueue({
+  dataDir,
+  transcript: transcriptStore,
+  transport: transcriptionTransport,
+  currentBlock: () => configStore.currentBlock,
+  vocabulary: config.transcriptionVocabulary,
+  onState: (state) => {
+    queueState = state;
+    broadcastOpsState();
+  },
+  onTranscript: broadcastTranscript,
+});
+const summaryScheduler = new runtime.SummaryScheduler(
+  transcriptStore,
+  summaryStore,
+  new runtime.OpenAISummaryProvider(() => process.env.OPENAI_API_KEY, config.summaryModel),
+);
 
 const execFileAsync = promisify(execFile);
-const dataDir = path.join(process.cwd(), "data");
 const dbPath = path.join(dataDir, "ricky-db.json");
 let currentMode = "display";
 let mainWindow = null;
@@ -591,25 +613,77 @@ function availableToolSpecs() {
   return config.features.computerUse ? toolSpecs : toolSpecs.filter((tool) => !isComputerTool(tool.name));
 }
 
+function buildOpsState() {
+  return {
+    block: configStore.currentBlock,
+    active: sessionOrchestrator.isActive,
+    capture: captureState,
+    queue: queueState,
+    warnings: [...opsWarnings],
+  };
+}
+
+function broadcastOpsState() {
+  const state = buildOpsState();
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.opsState, state);
+  }
+}
+
+function broadcastTranscript(entry) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.transcriptAppended, entry);
+  }
+}
+
+function recordOpsWarning(error) {
+  opsWarnings.push(error instanceof Error ? error.message : String(error));
+  if (opsWarnings.length > 50) opsWarnings.shift();
+  broadcastOpsState();
+}
+
 ipcMain.handle("tools:list", () => availableToolSpecs());
 ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => config.features);
 ipcMain.handle(runtime.IPC_CHANNELS.sessionActivate, async (_event, payload) => {
   const db = await readDb();
-  return sessionOrchestrator.activate(payload, availableToolSpecs(), buildThumbnailBoardInstructions(db));
+  const result = await sessionOrchestrator.activate(payload, availableToolSpecs(), buildThumbnailBoardInstructions(db));
+  broadcastOpsState();
+  return result;
 });
 ipcMain.handle(runtime.IPC_CHANNELS.sessionClose, (_event, payload) => {
   sessionOrchestrator.close(payload);
+  broadcastOpsState();
 });
 ipcMain.on(runtime.IPC_CHANNELS.sessionAssistantSaid, (_event, payload) => {
   const said = runtime.assistantSaidPayloadSchema.parse(payload);
-  assistantTranscript.push({ ...said, role: "ricky" });
-  if (assistantTranscript.length > 80) assistantTranscript.shift();
+  const timestamp = Date.now();
+  void transcriptStore
+    .append({
+      id: said.id,
+      tsStart: timestamp,
+      tsEnd: timestamp,
+      text: said.text,
+      source: "assistant",
+      block: configStore.currentBlock,
+    })
+    .then(broadcastTranscript)
+    .catch(recordOpsWarning);
 });
-ipcMain.handle(runtime.IPC_CHANNELS.opsState, () => ({ block: currentBlock, active: sessionOrchestrator.isActive }));
-ipcMain.handle(runtime.IPC_CHANNELS.opsSetBlock, (_event, payload) => {
+ipcMain.on(runtime.IPC_CHANNELS.audioChunk, (_event, payload) => {
+  const chunk = runtime.audioChunkPayloadSchema.parse(payload);
+  void transcriptionQueue.enqueue(chunk.wav, chunk.tsStart, chunk.tsEnd).catch(recordOpsWarning);
+});
+ipcMain.on(runtime.IPC_CHANNELS.audioCaptureState, (_event, payload) => {
+  captureState = runtime.captureStateSchema.parse(payload);
+  broadcastOpsState();
+});
+ipcMain.handle(runtime.IPC_CHANNELS.opsState, () => buildOpsState());
+ipcMain.handle(runtime.IPC_CHANNELS.opsSetBlock, async (_event, payload) => {
   const next = runtime.opsSetBlockPayloadSchema.parse(payload);
-  currentBlock = next.block;
-  return { block: currentBlock, active: sessionOrchestrator.isActive };
+  await configStore.setBlock(next.block);
+  broadcastOpsState();
+  void summaryScheduler.notifyBlockChange().catch(recordOpsWarning);
+  return buildOpsState();
 });
 
 // Compatibility for the previous renderer while the monolith is migrated incrementally.
@@ -1564,7 +1638,9 @@ function fallbackMermaidDiagram(title) {
 }
 
 app.whenReady().then(async () => {
-  await promptLoader.bootstrap();
+  await Promise.all([promptLoader.bootstrap(), configStore.load(), transcriptStore.load(), summaryStore.load()]);
+  await transcriptionQueue.load();
+  summaryScheduler.start();
   await createWindow();
   const registered = globalShortcut.register(config.activationShortcut, () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1578,6 +1654,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("will-quit", () => {
+  summaryScheduler.stop();
   globalShortcut.unregisterAll();
 });
 

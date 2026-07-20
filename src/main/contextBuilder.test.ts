@@ -13,15 +13,17 @@ describe("ContextBuilder", () => {
     const loader = { loadFresh: async () => prompts } as unknown as PromptLoader;
     const summaries = Array.from({ length: 12 }, (_, index) => ({
       id: `s${index}`,
-      block: index,
+      block: String(index),
       summary: `summary-${index} ${"s".repeat(700)}`,
       createdAt: new Date().toISOString(),
+      coversUntil: index,
     }));
     const transcript = Array.from({ length: 24 }, (_, index) => ({
       id: `t${index}`,
-      role: "user" as const,
+      source: "room" as const,
       text: `literal-${index} ${"t".repeat(700)}`,
-      at: `${index}:00`,
+      tsStart: index,
+      tsEnd: index + 1,
     }));
     const notes = Array.from({ length: 30 }, (_, index) => ({
       id: `n${index}`,

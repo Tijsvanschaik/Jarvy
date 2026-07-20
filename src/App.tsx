@@ -3,7 +3,9 @@ import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, Panel
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { RickyFace } from "./components/RickyFace";
 import { ActivationController, type ActivationCloseReason } from "./main/activationController";
-import { newEntry, RickyRealtimeClient, type MouthShape, type RickyConnectionState, type RickyMood, type TranscriptEntry } from "./lib/realtime";
+import { newEntry, RickyRealtimeClient, type MouthShape, type RealtimeTranscriptEntry, type RickyConnectionState, type RickyMood } from "./lib/realtime";
+import { MicHub, type MicHubState, type RealtimeMicLease } from "./renderer/audio/micHub";
+import type { OpsStateEvent } from "./shared/ipc";
 import type { RickyArtifact } from "./shared/types";
 
 type RickyMode = "display" | "computer";
@@ -19,16 +21,21 @@ export default function App() {
   const [showTypeInput, setShowTypeInput] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [mouthShape, setMouthShape] = useState<MouthShape>({ open: 0, width: 0.18, round: 0, teeth: 0 });
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([
+  const [transcript, setTranscript] = useState<RealtimeTranscriptEntry[]>([
     newEntry("system", "Ricky is ready. Connect, then talk naturally."),
   ]);
   const [status, setStatus] = useState("Click Connect, then talk or type.");
   const [textPrompt, setTextPrompt] = useState("");
   const [computerUseEnabled, setComputerUseEnabled] = useState(false);
+  const [micHubState, setMicHubState] = useState<MicHubState>({ capture: "stopped", vadSpeech: false });
+  const [opsState, setOpsState] = useState<OpsStateEvent | null>(null);
   const clientRef = useRef<RickyRealtimeClient | null>(null);
+  const realtimeMicLeaseRef = useRef<RealtimeMicLease | null>(null);
+  const micHubRef = useRef<MicHub | null>(null);
   const activationSourceRef = useRef<"ui" | "shortcut">("ui");
   const controllerRef = useRef<ActivationController | null>(null);
 
+  if (!micHubRef.current) micHubRef.current = new MicHub(setMicHubState);
   if (!controllerRef.current) {
     controllerRef.current = new ActivationController(
       () => startSession(activationSourceRef.current),
@@ -40,13 +47,31 @@ export default function App() {
 
   useEffect(() => {
     void window.ricky.getFeatures().then((features) => setComputerUseEnabled(features.computerUse));
+    void window.ricky.getOpsState().then(setOpsState);
     const unsubscribe = window.ricky.onSessionToggle(() => {
       activationSourceRef.current = "shortcut";
       void controllerRef.current?.toggle("shortcut");
     });
+    const unsubscribeOps = window.ricky.onOpsState(setOpsState);
+    const unsubscribeTranscript = window.ricky.onTranscriptAppended((entry) => {
+      if (entry.source === "assistant") return;
+      setTranscript((items) => [
+        {
+          id: entry.id,
+          role: entry.source === "assistant" ? ("ricky" as const) : ("user" as const),
+          text: entry.text,
+          at: new Date(entry.tsStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        },
+        ...items,
+      ].slice(0, 80));
+    });
     return () => {
       unsubscribe();
+      unsubscribeOps();
+      unsubscribeTranscript();
       clientRef.current?.disconnect();
+      realtimeMicLeaseRef.current?.release();
+      void micHubRef.current?.dispose();
       controllerRef.current?.dispose();
     };
   }, []);
@@ -57,6 +82,11 @@ export default function App() {
     setMood("thinking");
     setConnectionState("connecting");
     setStatus("Ricky wordt geactiveerd en bouwt context…");
+    try {
+      await micHubRef.current?.start();
+    } catch {
+      // Realtime retains its permission-safe direct microphone fallback.
+    }
     const activation = await window.ricky.activateSession({ source });
     if (!controllerRef.current?.isActive) {
       await window.ricky.closeSession({ reason: source });
@@ -99,14 +129,18 @@ export default function App() {
       },
       onThumbnailReady: playThumbnailReadySound,
       onActivity: () => controllerRef.current?.activity(),
+      onOutputPlayback: (playing) => micHubRef.current?.setRickyOutputPlaying(playing),
     });
     clientRef.current = client;
-    await client.connect(activation);
+    realtimeMicLeaseRef.current = micHubRef.current?.createRealtimeBranch() ?? null;
+    await client.connect(activation, realtimeMicLeaseRef.current?.stream);
   }
 
   async function stopSession(reason: ActivationCloseReason) {
     clientRef.current?.disconnect();
     clientRef.current = null;
+    realtimeMicLeaseRef.current?.release();
+    realtimeMicLeaseRef.current = null;
     setMicMuted(false);
     setConnectionState("idle");
     setMood("idle");
@@ -131,6 +165,22 @@ export default function App() {
     const nextMuted = !micMuted;
     setMicMuted(nextMuted);
     clientRef.current?.setMuted(nextMuted);
+  }
+
+  async function toggleAmbientCapture() {
+    if (micHubState.capture === "stopped" || micHubState.capture === "error") {
+      try {
+        await micHubRef.current?.start();
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    await micHubRef.current?.stop();
+  }
+
+  function toggleAmbientMute() {
+    micHubRef.current?.setAmbientMuted(micHubState.capture !== "muted");
   }
 
   async function switchMode(nextMode: RickyMode) {
@@ -195,6 +245,13 @@ export default function App() {
           >
             {status}
           </p>
+          <div className="room-status" role="status">
+            <span>Room: {micHubState.capture}</span>
+            <span>VAD: {micHubState.vadSpeech ? "speech" : "quiet"}</span>
+            <span>Queue: {opsState?.queue.depth ?? 0}</span>
+            <span>Block: {opsState?.block ?? "1-welkom"}</span>
+            {opsState?.queue.lastError ? <span className="room-error">{opsState.queue.lastError}</span> : null}
+          </div>
 
           {showTypeInput ? (
             <section className="prompt-box">
@@ -231,6 +288,24 @@ export default function App() {
               title={micMuted ? "Unmute mic" : "Mute mic"}
             >
               {micMuted ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
+            <button
+              className={micHubState.capture === "capturing" ? "simple-button active room-control" : "simple-button room-control"}
+              onClick={() => void toggleAmbientCapture()}
+              disabled={micHubState.capture === "starting"}
+              aria-label={micHubState.capture === "stopped" ? "Start room capture" : "Stop room capture"}
+              title={micHubState.capture === "stopped" ? "Start room capture" : "Stop room capture"}
+            >
+              Room
+            </button>
+            <button
+              className={micHubState.capture === "muted" ? "simple-button danger active room-control" : "simple-button room-control"}
+              onClick={toggleAmbientMute}
+              disabled={!["capturing", "muted"].includes(micHubState.capture)}
+              aria-label={micHubState.capture === "muted" ? "Resume room capture" : "Mute room capture"}
+              title={micHubState.capture === "muted" ? "Resume room capture" : "Mute room capture"}
+            >
+              {micHubState.capture === "muted" ? "Resume" : "Pause"}
             </button>
             <button
               className={showTypeInput ? "simple-button active" : "simple-button"}

@@ -59,7 +59,7 @@ export class ContextBuilder {
       CONTEXT_BUDGETS.summaries,
     );
     const literal = fitLines(
-      transcript.map((item) => `[${item.at}] ${item.role}: ${item.text}`),
+      transcript.map((item) => `[${new Date(item.tsStart).toISOString()}] ${item.source}: ${item.text}`),
       CONTEXT_BUDGETS.transcript,
     );
     const noteSection = renderNotes(notes);
