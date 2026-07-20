@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import mermaid from "mermaid";
-import type { RickyArtifact } from "../vite-env";
+import type { RickyArtifact } from "../shared/types";
 
 type ArtifactPanelProps = {
   artifact: RickyArtifact | null;

@@ -1,4 +1,13 @@
-import type { RickyArtifact, RickyToolCall, RickyToolResult, RickyToolSpec } from "../vite-env";
+import type { SessionActivateResult } from "../shared/ipc";
+import type {
+  RickyArtifact,
+  RickyToolCall,
+  RickyToolResult,
+  RickyToolSpec,
+  TranscriptEntry,
+} from "../shared/types";
+
+export type { TranscriptEntry } from "../shared/types";
 
 export type RickyConnectionState = "idle" | "connecting" | "connected" | "error";
 export type RickyMood = "idle" | "listening" | "thinking" | "speaking" | "working" | "error";
@@ -10,13 +19,6 @@ export type MouthShape = {
   teeth: number;
 };
 
-export type TranscriptEntry = {
-  id: string;
-  role: "user" | "ricky" | "system" | "tool";
-  text: string;
-  at: string;
-};
-
 export type RealtimeCallbacks = {
   onConnectionState: (state: RickyConnectionState) => void;
   onMood: (mood: RickyMood) => void;
@@ -26,6 +28,7 @@ export type RealtimeCallbacks = {
   onMode: (mode: "display" | "computer") => void;
   onStatus: (message: string) => void;
   onThumbnailReady: () => void;
+  onActivity: () => void;
 };
 
 type ServerEvent = {
@@ -83,7 +86,7 @@ export class RickyRealtimeClient {
     return this.muted;
   }
 
-  async connect(): Promise<void> {
+  async connect(activation: SessionActivateResult): Promise<void> {
     if (this.pc) return;
     this.preserveErrorState = false;
     this.muted = false;
@@ -93,8 +96,7 @@ export class RickyRealtimeClient {
 
     try {
       this.toolSpecs = await window.ricky.getToolSpecs();
-      this.callbacks.onStatus("Minting a Realtime client secret.");
-      const token = await window.ricky.createRealtimeToken();
+      const token = activation.token;
       const pc = new RTCPeerConnection();
       const audio = document.createElement("audio");
       audio.autoplay = true;
@@ -231,6 +233,7 @@ export class RickyRealtimeClient {
       return;
     }
     this.callbacks.onTranscript(newEntry("user", text));
+    this.callbacks.onActivity();
     this.sendEvent({
       type: "conversation.item.create",
       item: {
@@ -253,16 +256,19 @@ export class RickyRealtimeClient {
     }
 
     if (event.type === "input_audio_buffer.speech_started") {
+      this.callbacks.onActivity();
       if (!this.muted) this.callbacks.onMood("listening");
       return;
     }
 
     if (event.type === "input_audio_buffer.speech_stopped") {
+      this.callbacks.onActivity();
       this.callbacks.onMood("thinking");
       return;
     }
 
     if (event.type === "response.audio.delta" || event.type === "response.output_audio.delta") {
+      this.callbacks.onActivity();
       this.callbacks.onMood("speaking");
       return;
     }
@@ -288,6 +294,7 @@ export class RickyRealtimeClient {
     }
 
     if (event.type === "response.done") {
+      this.callbacks.onActivity();
       const output = event.response?.output || [];
       const spoken = this.currentAssistantText || output.map(collectOutputText).filter(Boolean).join("\n");
       if (spoken) this.callbacks.onTranscript(newEntry("ricky", spoken));

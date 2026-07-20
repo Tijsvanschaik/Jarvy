@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeImage, screen } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, screen } = require("electron");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const path = require("node:path");
@@ -7,6 +7,33 @@ const crypto = require("node:crypto");
 const dotenv = require("dotenv");
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
+
+const runtime = require(path.join(process.cwd(), ".electron-build", "runtime.cjs"));
+const config = runtime.loadConfig(process.env);
+const runtimePaths = runtime.resolveRuntimePaths(process.cwd());
+const promptLoader = new runtime.PromptLoader(runtimePaths);
+const assistantTranscript = [];
+let currentBlock = 0;
+const contextBuilder = new runtime.ContextBuilder(promptLoader, {
+  summaries: { list: async () => [] },
+  transcript: { recent: async () => assistantTranscript.slice(-80) },
+  notes: {
+    list: async () => {
+      const db = await readDb();
+      return db.notes.map((note) => ({
+        id: String(note.id || crypto.randomUUID()),
+        text: String(note.text || ""),
+        tags: Array.isArray(note.tags) ? note.tags.map(String) : [],
+        createdAt: String(note.createdAt || new Date().toISOString()),
+      }));
+    },
+  },
+});
+const sessionOrchestrator = new runtime.SessionOrchestrator(
+  config,
+  contextBuilder,
+  () => process.env.OPENAI_API_KEY,
+);
 
 const execFileAsync = promisify(execFile);
 const dataDir = path.join(process.cwd(), "data");
@@ -496,7 +523,7 @@ async function createWindow() {
     backgroundColor: "#00000000",
     icon: nativeImage.createEmpty(),
     webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+      preload: path.join(process.cwd(), ".electron-build", "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -504,10 +531,10 @@ async function createWindow() {
   mainWindow = win;
 
   win.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "media" || permission === "mediaKeySystem" || permission === "display-capture");
+    callback(permission === "media" || permission === "mediaKeySystem");
   });
   win.webContents.session.setPermissionCheckHandler((_webContents, permission) => {
-    return permission === "media" || permission === "mediaKeySystem" || permission === "display-capture";
+    return permission === "media" || permission === "mediaKeySystem";
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -556,70 +583,54 @@ function setWindowMode(mode) {
   }
 }
 
-ipcMain.handle("tools:list", () => toolSpecs);
+function isComputerTool(name) {
+  return name === "set_mode" || name.startsWith("computer_") || name === "screen_snapshot" || name === "ui_inspect";
+}
 
-ipcMain.handle("realtime:create-token", async () => {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is missing in .env.local");
-  }
+function availableToolSpecs() {
+  return config.features.computerUse ? toolSpecs : toolSpecs.filter((tool) => !isComputerTool(tool.name));
+}
+
+ipcMain.handle("tools:list", () => availableToolSpecs());
+ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => config.features);
+ipcMain.handle(runtime.IPC_CHANNELS.sessionActivate, async (_event, payload) => {
   const db = await readDb();
-  const instructions = `${RICKY_INSTRUCTIONS}\n\n${buildThumbnailBoardInstructions(db)}`;
-
-  const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "OpenAI-Safety-Identifier": crypto.createHash("sha256").update("riley-local-ricky").digest("hex"),
-    },
-    body: JSON.stringify({
-      session: {
-        type: "realtime",
-        model: "gpt-realtime-2",
-        instructions,
-        output_modalities: ["audio"],
-        reasoning: { effort: "low" },
-        tool_choice: "auto",
-        tools: toolSpecs,
-        audio: {
-          input: {
-            turn_detection: {
-              type: "semantic_vad",
-              eagerness: "medium",
-              create_response: true,
-              interrupt_response: true,
-            },
-          },
-          output: {
-            voice: "cedar",
-          },
-        },
-        tracing: {
-          workflow_name: "Ricky Desktop Companion",
-        },
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Realtime token request failed: ${response.status} ${text}`);
-  }
-
-  const data = await response.json();
-  const value = data.value || data.client_secret?.value;
-  if (!value) {
-    throw new Error("Realtime token response did not include a client secret value.");
-  }
-  return { value, expiresAt: data.expires_at || data.client_secret?.expires_at || null };
+  return sessionOrchestrator.activate(payload, availableToolSpecs(), buildThumbnailBoardInstructions(db));
+});
+ipcMain.handle(runtime.IPC_CHANNELS.sessionClose, (_event, payload) => {
+  sessionOrchestrator.close(payload);
+});
+ipcMain.on(runtime.IPC_CHANNELS.sessionAssistantSaid, (_event, payload) => {
+  const said = runtime.assistantSaidPayloadSchema.parse(payload);
+  assistantTranscript.push({ ...said, role: "ricky" });
+  if (assistantTranscript.length > 80) assistantTranscript.shift();
+});
+ipcMain.handle(runtime.IPC_CHANNELS.opsState, () => ({ block: currentBlock, active: sessionOrchestrator.isActive }));
+ipcMain.handle(runtime.IPC_CHANNELS.opsSetBlock, (_event, payload) => {
+  const next = runtime.opsSetBlockPayloadSchema.parse(payload);
+  currentBlock = next.block;
+  return { block: currentBlock, active: sessionOrchestrator.isActive };
 });
 
-ipcMain.handle("tools:execute", async (_event, toolCall) => {
+// Compatibility for the previous renderer while the monolith is migrated incrementally.
+ipcMain.handle("realtime:create-token", async () => {
+  const db = await readDb();
+  const result = await sessionOrchestrator.activate(
+    { source: "ui" },
+    availableToolSpecs(),
+    buildThumbnailBoardInstructions(db),
+  );
+  return result.token;
+});
+
+async function executeTool(_event, toolCall) {
   const name = String(toolCall?.name || "");
   const args = asObject(toolCall?.arguments);
 
   try {
+    if (!config.features.computerUse && isComputerTool(name) && !(name === "set_mode" && args.mode === "display")) {
+      return { ok: false, error: "Computer use is disabled by feature configuration." };
+    }
     if (name === "set_mode") {
       currentMode = args.mode === "computer" ? "computer" : "display";
       setWindowMode(currentMode);
@@ -854,7 +865,12 @@ end tell`;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-});
+}
+
+ipcMain.handle("tools:execute", executeTool);
+ipcMain.handle(runtime.IPC_CHANNELS.toolCall, (event, payload) =>
+  executeTool(event, runtime.toolCallPayloadSchema.parse(payload)),
+);
 
 async function webSearch(args) {
   const exaKey = process.env.EXA_API_KEY;
@@ -1547,7 +1563,23 @@ function fallbackMermaidDiagram(title) {
   return `flowchart TD\n  A["${safeTitle}"] --> B["Chart request received"]\n  B --> C["Ricky will show a safe fallback if syntax fails"]`;
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  await promptLoader.bootstrap();
+  await createWindow();
+  const registered = globalShortcut.register(config.activationShortcut, () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.webContents.send(runtime.IPC_CHANNELS.sessionToggleRequested, "shortcut");
+  });
+  if (!registered) {
+    console.warn(`Could not register Ricky activation shortcut: ${config.activationShortcut}`);
+  }
+});
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

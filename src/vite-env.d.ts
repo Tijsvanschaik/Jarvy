@@ -1,50 +1,30 @@
 /// <reference types="vite/client" />
 
-export type RickyArtifact = {
-  title: string;
-  kind:
-    | "text"
-    | "markdown"
-    | "code"
-    | "table"
-    | "notes"
-    | "mermaid"
-    | "image"
-    | "imageLoading"
-    | "thumbnailBoard"
-    | "progress";
-  content: string;
-  language?: string;
-  fullscreen?: boolean;
-};
-
-export type RickyToolSpec = {
-  type: "function";
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-};
-
-export type RickyToolCall = {
-  name: string;
-  arguments: Record<string, unknown>;
-};
-
-export type RickyToolResult = {
-  ok: boolean;
-  artifact?: RickyArtifact;
-  mode?: "display" | "computer";
-  message?: string;
-  error?: string;
-  [key: string]: unknown;
-};
+import type {
+  AssistantSaidPayload,
+  OpsSetBlockPayload,
+  OpsStateEvent,
+  SessionActivatePayload,
+  SessionActivateResult,
+  SessionClosePayload,
+} from "./shared/ipc";
+import type { RickyToolCall, RickyToolResult, RickyToolSpec } from "./shared/types";
 
 declare global {
   interface Window {
     ricky: {
-      createRealtimeToken: () => Promise<{ value: string; expiresAt: number | null }>;
+      activateSession: (payload: SessionActivatePayload) => Promise<SessionActivateResult>;
+      closeSession: (payload: SessionClosePayload) => Promise<void>;
+      assistantSaid: (payload: AssistantSaidPayload) => void;
+      onSessionToggle: (listener: (source: "shortcut") => void) => () => void;
       executeTool: (toolCall: RickyToolCall) => Promise<RickyToolResult>;
       getToolSpecs: () => Promise<RickyToolSpec[]>;
+      getFeatures: () => Promise<{ computerUse: boolean }>;
+      getOpsState: () => Promise<OpsStateEvent>;
+      setOpsBlock: (payload: OpsSetBlockPayload) => Promise<OpsStateEvent>;
+      createRealtimeToken: () => Promise<{ value: string; expiresAt: number | null }>;
     };
   }
 }
+
+export {};

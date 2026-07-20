@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, PanelRight, Power, Send } from "lucide-react";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { RickyFace } from "./components/RickyFace";
+import { ActivationController, type ActivationCloseReason } from "./main/activationController";
 import { newEntry, RickyRealtimeClient, type MouthShape, type RickyConnectionState, type RickyMood, type TranscriptEntry } from "./lib/realtime";
-import type { RickyArtifact } from "./vite-env";
+import type { RickyArtifact } from "./shared/types";
 
 type RickyMode = "display" | "computer";
 
@@ -23,13 +24,44 @@ export default function App() {
   ]);
   const [status, setStatus] = useState("Click Connect, then talk or type.");
   const [textPrompt, setTextPrompt] = useState("");
+  const [computerUseEnabled, setComputerUseEnabled] = useState(false);
   const clientRef = useRef<RickyRealtimeClient | null>(null);
+  const activationSourceRef = useRef<"ui" | "shortcut">("ui");
+  const controllerRef = useRef<ActivationController | null>(null);
+
+  if (!controllerRef.current) {
+    controllerRef.current = new ActivationController(
+      () => startSession(activationSourceRef.current),
+      (reason) => stopSession(reason),
+    );
+  }
 
   const isConnected = connectionState === "connected";
 
-  async function connect() {
+  useEffect(() => {
+    void window.ricky.getFeatures().then((features) => setComputerUseEnabled(features.computerUse));
+    const unsubscribe = window.ricky.onSessionToggle(() => {
+      activationSourceRef.current = "shortcut";
+      void controllerRef.current?.toggle("shortcut");
+    });
+    return () => {
+      unsubscribe();
+      clientRef.current?.disconnect();
+      controllerRef.current?.dispose();
+    };
+  }, []);
+
+  async function startSession(source: "ui" | "shortcut") {
     setShowLog(true);
     setMicMuted(false);
+    setMood("thinking");
+    setConnectionState("connecting");
+    setStatus("Ricky wordt geactiveerd en bouwt context…");
+    const activation = await window.ricky.activateSession({ source });
+    if (!controllerRef.current?.isActive) {
+      await window.ricky.closeSession({ reason: source });
+      return;
+    }
     const client = new RickyRealtimeClient({
       onConnectionState: (state) => {
         setConnectionState(state);
@@ -38,7 +70,12 @@ export default function App() {
       },
       onMood: setMood,
       onMouthShape: setMouthShape,
-      onTranscript: (entry) => setTranscript((items) => [entry, ...items].slice(0, 80)),
+      onTranscript: (entry) => {
+        setTranscript((items) => [entry, ...items].slice(0, 80));
+        if (entry.role === "ricky") {
+          window.ricky.assistantSaid({ id: entry.id, text: entry.text, at: entry.at });
+        }
+      },
       onArtifact: (nextArtifact) => {
         setArtifact(nextArtifact);
         setArtifactVisible(true);
@@ -61,18 +98,29 @@ export default function App() {
         setTranscript((items) => [newEntry("system", message), ...items].slice(0, 80));
       },
       onThumbnailReady: playThumbnailReadySound,
+      onActivity: () => controllerRef.current?.activity(),
     });
     clientRef.current = client;
-    await client.connect();
+    await client.connect(activation);
   }
 
-  function disconnect() {
+  async function stopSession(reason: ActivationCloseReason) {
     clientRef.current?.disconnect();
     clientRef.current = null;
     setMicMuted(false);
     setConnectionState("idle");
     setMood("idle");
-    setStatus("Disconnected. Click Connect to reconnect.");
+    setStatus(reason === "inactivity" ? "Sessie gesloten na 20 seconden inactiviteit." : "Ricky is niet actief.");
+    await window.ricky.closeSession({ reason });
+  }
+
+  function toggleActivation(source: "ui" | "shortcut") {
+    activationSourceRef.current = source;
+    void controllerRef.current?.toggle(source).catch((error: unknown) => {
+      setConnectionState("error");
+      setMood("error");
+      setStatus(error instanceof Error ? error.message : String(error));
+    });
   }
 
   function toggleMute() {
@@ -168,10 +216,10 @@ export default function App() {
           <section className="control-strip">
             <button
               className={isConnected ? "simple-button active" : connectionState === "error" ? "simple-button danger" : "simple-button"}
-              onClick={isConnected ? disconnect : connect}
+              onClick={() => toggleActivation("ui")}
               disabled={connectionState === "connecting"}
-              aria-label={isConnected ? "Disconnect" : "Connect"}
-              title={isConnected ? "Disconnect" : "Connect"}
+              aria-label={isConnected ? "Deactivate Ricky" : "Activate Ricky"}
+              title={isConnected ? "Deactivate Ricky" : "Activate Ricky"}
             >
               <Power size={16} />
             </button>
@@ -205,14 +253,16 @@ export default function App() {
             >
               <PanelRight size={16} />
             </button>
-            <button
-              className="simple-button danger"
-              onClick={() => void switchMode("computer")}
-              aria-label="Computer use mode"
-              title="Computer use mode"
-            >
-              <MonitorCog size={16} />
-            </button>
+            {computerUseEnabled ? (
+              <button
+                className="simple-button danger"
+                onClick={() => void switchMode("computer")}
+                aria-label="Computer use mode"
+                title="Computer use mode"
+              >
+                <MonitorCog size={16} />
+              </button>
+            ) : null}
             <button
               className={artifactVisible ? "simple-button active" : "simple-button"}
               onClick={() => setArtifactVisible((value) => !value)}
