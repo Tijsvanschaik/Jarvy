@@ -30,4 +30,20 @@ describe("BoardStore", () => {
     await recovered.load();
     expect(recovered.snapshot().pins[0].notitie).toBe("Routine 2");
   });
+
+  it("quarantines corrupt board state and starts empty", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aiden-board-corrupt-"));
+    roots.push(root);
+    const library = path.join(root, "library.json");
+    await fs.writeFile(library, "[]");
+    const signals = new SignalStore(library, library);
+    await signals.reload();
+    const file = path.join(root, "board.json");
+    await fs.writeFile(file, "{broken");
+    const warnings: string[] = [];
+    const board = new BoardStore(file, signals, (warning) => warnings.push(warning));
+    await expect(board.load()).resolves.toBeUndefined();
+    expect(board.snapshot().pins).toEqual([]);
+    expect(warnings.some((warning) => warning.includes("quarantined"))).toBe(true);
+  });
 });

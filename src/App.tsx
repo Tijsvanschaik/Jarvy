@@ -35,6 +35,7 @@ export default function App() {
   const micHubRef = useRef<MicHub | null>(null);
   const activationSourceRef = useRef<"ui" | "shortcut">("ui");
   const controllerRef = useRef<ActivationController | null>(null);
+  const configuredMicrophoneIdRef = useRef<string | undefined>(undefined);
 
   if (!micHubRef.current) micHubRef.current = new MicHub(setMicHubState);
   if (!controllerRef.current) {
@@ -47,7 +48,10 @@ export default function App() {
   const isConnected = connectionState === "connected";
 
   useEffect(() => {
-    void window.aiden.getFeatures().then((features) => setComputerUseEnabled(features.computerUse));
+    void window.aiden.getFeatures().then((features) => {
+      setComputerUseEnabled(features.computerUse);
+      configuredMicrophoneIdRef.current = features.microphoneId;
+    });
     void window.aiden.getOpsState().then(setOpsState);
     const unsubscribe = window.aiden.onSessionToggle(() => {
       activationSourceRef.current = "shortcut";
@@ -107,7 +111,7 @@ export default function App() {
     setConnectionState("connecting");
     setStatus("Aiden wordt geactiveerd en bouwt context…");
     try {
-      await micHubRef.current?.start();
+      await micHubRef.current?.start(configuredMicrophoneIdRef.current);
     } catch {
       // Realtime retains its permission-safe direct microphone fallback.
     }
@@ -184,6 +188,11 @@ export default function App() {
   function toggleActivation(source: "ui" | "shortcut") {
     activationSourceRef.current = source;
     void controllerRef.current?.toggle(source).catch((error: unknown) => {
+      clientRef.current?.disconnect();
+      clientRef.current = null;
+      realtimeMicLeaseRef.current?.release();
+      realtimeMicLeaseRef.current = null;
+      void window.aiden.closeSession({ reason: "error" });
       setConnectionState("error");
       setMood("error");
       setStatus(error instanceof Error ? error.message : String(error));
@@ -203,7 +212,7 @@ export default function App() {
   async function toggleAmbientCapture() {
     if (micHubState.capture === "stopped" || micHubState.capture === "error") {
       try {
-        await micHubRef.current?.start();
+        await micHubRef.current?.start(configuredMicrophoneIdRef.current);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : String(error));
       }
@@ -340,6 +349,14 @@ export default function App() {
               title={micHubState.capture === "muted" ? "Resume room capture" : "Mute room capture"}
             >
               {micHubState.capture === "muted" ? "Resume" : "Pause"}
+            </button>
+            <button
+              className="simple-button"
+              onClick={() => void window.aiden.openOperator()}
+              aria-label="Open Aiden operator window"
+              title="Open operator window"
+            >
+              <MonitorCog size={16} />
             </button>
             <button
               className={showTypeInput ? "simple-button active" : "simple-button"}

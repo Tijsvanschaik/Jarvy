@@ -137,6 +137,33 @@ describe("TranscriptionQueue", () => {
     expect(manifest.jobs).toContainEqual(expect.objectContaining({ id: job.id, status: "failed" }));
     await expect(fs.access(path.join(root, "audio", "chunks", job.chunkFile))).resolves.toBeUndefined();
   });
+
+  it("quarantines corrupt queue state without crashing or deleting raw bytes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aiden-corrupt-queue-"));
+    roots.push(root);
+    await fs.mkdir(path.join(root, "audio", "chunks"), { recursive: true });
+    await fs.writeFile(path.join(root, "audio", "chunks", "preserve.wav"), "raw");
+    await fs.writeFile(path.join(root, "audio", "queue.json"), "{broken");
+    const warnings: string[] = [];
+    const transcript = new TranscriptStore(path.join(root, "transcript"));
+    await transcript.load();
+    const queue = new TranscriptionQueue({
+      dataDir: root,
+      transcript,
+      transport: { transcribe: async () => "unused" },
+      currentBlock: () => "1",
+      warn: (warning) => warnings.push(warning),
+    });
+    await expect(queue.load()).resolves.toBeUndefined();
+    expect(warnings.some((warning) => warning.includes("quarantined"))).toBe(true);
+    await expect(fs.readFile(path.join(root, "audio", "chunks", "preserve.wav"), "utf8")).resolves.toBe("raw");
+  });
+
+  it("persists shutdown idempotently and rejects new audio", async () => {
+    const { queue } = await setup({ transcribe: async () => "done" });
+    await Promise.all([queue.shutdown(), queue.shutdown()]);
+    await expect(queue.enqueue(wav(), 1, 2)).rejects.toThrow("shutting down");
+  });
 });
 
 describe("OpenAITranscriptionTransport", () => {

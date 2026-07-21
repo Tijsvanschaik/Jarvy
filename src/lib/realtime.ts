@@ -79,6 +79,8 @@ export class AidenRealtimeClient {
   private smoothedMouthShape: MouthShape = silentMouthShape();
   private preserveErrorState = false;
   private muted = false;
+  private generation = 0;
+  private connectionAbort: AbortController | null = null;
 
   constructor(callbacks: RealtimeCallbacks) {
     this.callbacks = callbacks;
@@ -94,6 +96,7 @@ export class AidenRealtimeClient {
 
   async connect(activation: SessionActivateResult, injectedStream?: MediaStream): Promise<void> {
     if (this.pc) return;
+    const generation = ++this.generation;
     this.preserveErrorState = false;
     this.muted = false;
     this.callbacks.onConnectionState("connecting");
@@ -102,8 +105,10 @@ export class AidenRealtimeClient {
 
     try {
       this.toolSpecs = await window.aiden.getToolSpecs();
+      if (generation !== this.generation) return;
       const token = activation.token;
       const pc = new RTCPeerConnection();
+      this.pc = pc;
       const audio = document.createElement("audio");
       audio.autoplay = true;
       audio.setAttribute("playsinline", "true");
@@ -134,6 +139,14 @@ export class AidenRealtimeClient {
             channelCount: 1,
           },
         }));
+      if (generation !== this.generation) {
+        this.micStream.getTracks().forEach((track) => track.stop());
+        this.micStream = null;
+        pc.close();
+        audio.remove();
+        if (this.pc === pc) this.pc = null;
+        return;
+      }
       const micTrack = this.micStream.getAudioTracks()[0];
       if (!micTrack) {
         throw new Error("No microphone track was available. Check Windows Privacy → Microphone.");
@@ -142,6 +155,7 @@ export class AidenRealtimeClient {
       pc.addTrack(micTrack, this.micStream);
 
       const dc = pc.createDataChannel("oai-events");
+      this.dc = dc;
       dc.addEventListener("open", () => {
         this.callbacks.onConnectionState("connected");
         this.callbacks.onMood("idle");
@@ -160,37 +174,50 @@ export class AidenRealtimeClient {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const sdpResponse = await fetch(realtimeUrl, {
-        method: "POST",
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${token.value}`,
-          "Content-Type": "application/sdp",
-        },
-      });
+      const controller = new AbortController();
+      this.connectionAbort = controller;
+      const timer = window.setTimeout(() => controller.abort(), 15_000);
+      let sdpResponse: Response;
+      try {
+        sdpResponse = await fetch(realtimeUrl, {
+          method: "POST",
+          body: offer.sdp,
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${token.value}`,
+            "Content-Type": "application/sdp",
+          },
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
 
       if (!sdpResponse.ok) {
-        throw new Error(`Realtime WebRTC call failed: ${sdpResponse.status} ${await sdpResponse.text()}`);
+        throw new Error(`Realtime WebRTC call failed (${providerGuidance(sdpResponse.status)}).`);
       }
 
       await pc.setRemoteDescription({
         type: "answer",
         sdp: await sdpResponse.text(),
       });
-
-      this.pc = pc;
-      this.dc = dc;
+      if (generation !== this.generation) return;
+      this.connectionAbort = null;
     } catch (error) {
+      if (generation !== this.generation) return;
       const message = formatConnectError(error);
       this.preserveErrorState = true;
       this.callbacks.onConnectionState("error");
       this.callbacks.onMood("error");
       this.callbacks.onStatus(message);
       this.disconnect();
+      throw error;
     }
   }
 
   disconnect(): void {
+    this.generation += 1;
+    this.connectionAbort?.abort();
+    this.connectionAbort = null;
     this.muted = false;
     this.callbacks.onOutputPlayback(false);
     this.dc?.close();
@@ -502,12 +529,21 @@ export function newEntry(role: RealtimeTranscriptEntry["role"], text: string): R
 function formatConnectError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (/NotAllowedError|Permission denied|permission/i.test(message)) {
-    return "Microphone permission denied. Allow mic access for Electron in Windows Settings → Privacy → Microphone, then click Mic again.";
+    return navigator.platform.toLowerCase().includes("mac")
+      ? "Microphone permission denied. Allow Aiden/Electron in macOS System Settings → Privacy & Security → Microphone, then try again."
+      : "Microphone permission denied. Allow mic access for Electron in Windows Settings → Privacy → Microphone, then click Mic again.";
   }
   if (/NotFoundError|Requested device not found/i.test(message)) {
     return "No microphone found. Plug one in, then click Mic again.";
   }
   return message;
+}
+
+function providerGuidance(status: number): string {
+  if (status === 401 || status === 403) return `auth ${status}; verify API key`;
+  if (status === 429) return "quota/rate limit 429; review billing";
+  if (status >= 500) return `provider/network ${status}; retry`;
+  return `HTTP ${status}; verify realtime model access`;
 }
 
 function safeParseEvent(raw: string): ServerEvent {

@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import type { OpsStateEvent } from "../shared/ipc";
+import type { OpsStateEvent, PreflightReport } from "../shared/ipc";
 
 export function OperatorPanel() {
   const [state, setState] = useState<OpsStateEvent | null>(null);
   const [block, setBlock] = useState("");
   const blockDirty = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [preflight, setPreflight] = useState<PreflightReport | null>(null);
+  const [deviceCheck, setDeviceCheck] = useState("Not requested");
 
   useEffect(() => {
     void window.aiden.getOpsState().then((next) => {
       setState(next);
       setBlock(next.block);
     });
+    void window.aiden.getPreflight().then(setPreflight);
     return window.aiden.onOpsState((next) => {
       setState(next);
       if (!blockDirty.current) setBlock(next.block);
@@ -55,6 +58,7 @@ export function OperatorPanel() {
         <Metric label="Notes" value={String(state.notesCount)} />
         <Metric label="Recap" value={`${state.recap.phase} · ${state.recap.completed}/${state.recap.total}`} />
         <Metric label="Recap cache" value={state.recap.cacheUsed ? "reused" : "fresh"} />
+        <Metric label="Preflight" value={preflight ? (preflight.ok ? "ready" : "attention") : "pending"} />
       </section>
 
       <section className="operator-block">
@@ -74,6 +78,31 @@ export function OperatorPanel() {
             }}
           >
             Set block
+          </button>
+        </div>
+      </section>
+
+      <section className="operator-block">
+        <label>Explicit local device check</label>
+        <div>
+          <span>{deviceCheck}</span>
+          <button
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const microphones = devices.filter((device) => device.kind === "audioinput").length;
+                const cameras = devices.filter((device) => device.kind === "videoinput").length;
+                setDeviceCheck(`${microphones} microphone(s), ${cameras} camera(s); devices were not opened`);
+              } catch (error) {
+                setDeviceCheck(`Device enumeration failed: ${error instanceof Error ? error.message : String(error)}`);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Check devices
           </button>
         </div>
       </section>
@@ -110,6 +139,15 @@ export function OperatorPanel() {
             {warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
             {!state.queue.lastError && !state.capture.error && !state.recap.lastError && !warnings.length ? <li className="muted">None</li> : null}
           </ul>
+          <h2>Preflight</h2>
+          <div className="operator-list">
+            {preflight?.checks.map((check) => (
+              <article key={check.id}>
+                <strong>{check.status.toUpperCase()} · {check.id}</strong>
+                <p>{check.message}</p>
+              </article>
+            )) ?? <p className="muted">Preflight pending.</p>}
+          </div>
         </section>
       </div>
     </main>

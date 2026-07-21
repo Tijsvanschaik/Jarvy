@@ -17,6 +17,7 @@ import type {
   DeckShowEvent,
   NoteAddedEvent,
   TranscriptEntryEvent,
+  PreflightReport,
 } from "./shared/ipc";
 import type { AidenToolCall, AidenToolResult, AidenToolSpec, RecapDeck } from "./shared/types";
 
@@ -38,10 +39,13 @@ declare global {
         cameraVision: boolean;
         recap: boolean;
         directRealtimeVision: false;
+        microphoneId?: string;
+        cameraId?: string;
       }>;
       getOpsState: () => Promise<OpsStateEvent>;
       setOpsBlock: (payload: OpsSetBlockPayload) => Promise<OpsStateEvent>;
       hardCloseSession: (payload: OpsHardClosePayload) => Promise<OpsStateEvent>;
+      openOperator: () => Promise<void>;
       onOpsState: (listener: (state: OpsStateEvent) => void) => () => void;
       onTranscriptAppended: (listener: (entry: TranscriptEntryEvent) => void) => () => void;
       getBoardState: () => Promise<BoardState>;
@@ -51,6 +55,7 @@ declare global {
       respondCameraCapture: (response: CameraCaptureResponse) => void;
       onDeckShow: (listener: (event: DeckShowEvent) => void) => () => void;
       getRecapDeck: () => Promise<RecapDeck | null>;
+      getPreflight: () => Promise<PreflightReport>;
       createRealtimeToken: () => Promise<{ value: string; expiresAt: number | null }>;
     };
   }

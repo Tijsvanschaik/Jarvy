@@ -1,5 +1,6 @@
 export { ActivationController } from "./activationController";
 export { loadConfig } from "./config";
+export { ShutdownCoordinator } from "./lifecycle";
 export { ConfigStore } from "./configStore";
 export { BoardStore } from "./boardStore";
 export { CONTEXT_BUDGETS, ContextBuilder } from "./contextBuilder";
@@ -7,6 +8,7 @@ export { NotesStore } from "./notesStore";
 export { dispatchHardClose, OpsStateAggregator, ThrottledBroadcaster } from "./opsState";
 export { resolveRuntimePaths } from "./paths";
 export { PROMPT_FILES, PromptLoader } from "./promptLoader";
+export { runPreflight } from "./preflight";
 export { OpenAIRecapImageProvider } from "./recapImageProvider";
 export { RecapJobController, RecapPipeline, enforceParticipantEvidence } from "./recapPipeline";
 export { OpenAIRecapProvider, RecapProviderError } from "./recapProvider";

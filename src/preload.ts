@@ -10,6 +10,7 @@ import {
   opsStateEventSchema,
   opsHardClosePayloadSchema,
   opsSetBlockPayloadSchema,
+  preflightReportSchema,
   sessionActivatePayloadSchema,
   sessionActivateResultSchema,
   sessionClosePayloadSchema,
@@ -72,6 +73,7 @@ contextBridge.exposeInMainWorld("aiden", {
     opsStateEventSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.opsHardClose, opsHardClosePayloadSchema.parse(payload)),
     ),
+  openOperator: () => ipcRenderer.invoke(IPC_CHANNELS.opsOpenOperator),
   onOpsState: (listener: (state: ReturnType<typeof opsStateEventSchema.parse>) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(opsStateEventSchema.parse(payload));
     ipcRenderer.on(IPC_CHANNELS.opsState, handler);
@@ -108,6 +110,7 @@ contextBridge.exposeInMainWorld("aiden", {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.deckShow, handler);
   },
   getRecapDeck: async () => recapDeckSchema.nullable().parse(await ipcRenderer.invoke(IPC_CHANNELS.deckState)),
+  getPreflight: async () => preflightReportSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.preflightGet)),
 
   // Transitional adapter for renderer code from before session:activate.
   createRealtimeToken: async () => {

@@ -26,6 +26,8 @@ export class MicHub {
   private startPromise: Promise<void> | null = null;
   private resumeTimer = 0;
   private muted = false;
+  private disposed = false;
+  private generation = 0;
   private state: MicHubState = { capture: "stopped", vadSpeech: false, level: 0 };
   private lastLevelReport = 0;
   private readonly vad = new EnergyVad();
@@ -43,10 +45,12 @@ export class MicHub {
   }
 
   async start(deviceId?: string): Promise<void> {
+    if (this.disposed) throw new Error("Microphone capture has been disposed.");
     if (this.sourceStream) return;
     if (this.startPromise) return this.startPromise;
     this.setState({ capture: "starting", vadSpeech: false, level: 0, deviceId });
-    this.startPromise = this.acquire(deviceId).finally(() => {
+    const generation = ++this.generation;
+    this.startPromise = this.acquire(deviceId, generation).finally(() => {
       this.startPromise = null;
     });
     return this.startPromise;
@@ -80,6 +84,7 @@ export class MicHub {
   }
 
   async stop(): Promise<void> {
+    this.generation += 1;
     window.clearTimeout(this.resumeTimer);
     this.workletNode?.disconnect();
     this.sourceNode?.disconnect();
@@ -98,11 +103,13 @@ export class MicHub {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     navigator.mediaDevices?.removeEventListener("devicechange", this.handleDeviceChange);
     await this.stop();
   }
 
-  private async acquire(deviceId?: string): Promise<void> {
+  private async acquire(deviceId: string | undefined, generation: number): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -114,6 +121,10 @@ export class MicHub {
       });
       const track = stream.getAudioTracks()[0];
       if (!track) throw new Error("No microphone audio track was returned.");
+      if (this.disposed || generation !== this.generation) {
+        stream.getTracks().forEach((item) => item.stop());
+        return;
+      }
       track.addEventListener("ended", () => {
         if (this.sourceStream === stream) {
           this.setState({ ...this.state, capture: "error", vadSpeech: false, error: "Microphone disconnected." });
@@ -122,7 +133,17 @@ export class MicHub {
 
       const context = new AudioContext({ sampleRate: 16_000 });
       await context.audioWorklet.addModule(new URL("audio/pcm-capture-worklet.js", document.baseURI).href);
+      if (this.disposed || generation !== this.generation) {
+        stream.getTracks().forEach((item) => item.stop());
+        await context.close();
+        return;
+      }
       await context.resume();
+      if (this.disposed || generation !== this.generation) {
+        stream.getTracks().forEach((item) => item.stop());
+        await context.close();
+        return;
+      }
       const source = context.createMediaStreamSource(stream);
       const worklet = new AudioWorkletNode(context, "aiden-pcm-capture");
       const silentGain = context.createGain();

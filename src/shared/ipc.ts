@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   opsState: "ops:state",
   opsSetBlock: "ops:setBlock",
   opsHardClose: "ops:hardClose",
+  opsOpenOperator: "ops:openOperator",
   boardPin: "board:pin",
   boardState: "board:state",
   noteAdded: "note:added",
@@ -24,6 +25,7 @@ export const IPC_CHANNELS = {
   cameraCaptureResponse: "camera:captureResponse",
   deckShow: "deck:show",
   deckState: "deck:state",
+  preflightGet: "preflight:get",
 } as const;
 
 export const contextSectionUsageSchema = z.object({
@@ -144,6 +146,17 @@ export const recapProgressSchema = z.object({
   lastError: z.string().optional(),
 });
 
+export const preflightReportSchema = z.object({
+  ok: z.boolean(),
+  checkedAt: z.string(),
+  checks: z.array(z.object({
+    id: z.string(),
+    status: z.enum(["pass", "warn", "fail", "skipped"]),
+    message: z.string(),
+    latencyMs: z.number().nonnegative().optional(),
+  })),
+});
+
 export const deckShowEventSchema = z.object({
   deck: recapDeckSchema,
   progressive: z.boolean(),
@@ -205,6 +218,7 @@ export type OpsHardClosePayload = z.infer<typeof opsHardClosePayloadSchema>;
 export type BoardState = z.infer<typeof boardStateSchema>;
 export type BoardPinEvent = z.infer<typeof boardPinSchema>;
 export type NoteAddedEvent = z.infer<typeof oogstNotitieSchema>;
+export type PreflightReport = z.infer<typeof preflightReportSchema>;
 
 export function parseBoundary<T>(schema: z.ZodType<T>, payload: unknown): T {
   return schema.parse(payload);

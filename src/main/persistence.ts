@@ -22,3 +22,31 @@ export async function readJsonFile(filePath: string): Promise<unknown | undefine
     throw error;
   }
 }
+
+export async function readJsonFileRecovering(
+  filePath: string,
+  warn: (message: string) => void = () => undefined,
+): Promise<unknown | undefined> {
+  try {
+    return await readJsonFile(filePath);
+  } catch (error) {
+    const quarantine = `${filePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    try {
+      await fs.rename(filePath, quarantine);
+      warn(`Corrupt runtime state quarantined as ${path.basename(quarantine)}.`);
+    } catch {
+      warn(`Corrupt runtime state at ${path.basename(filePath)} was preserved and skipped.`);
+    }
+    return undefined;
+  }
+}
+
+export async function quarantineFile(filePath: string, warn: (message: string) => void): Promise<void> {
+  const quarantine = `${filePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  try {
+    await fs.rename(filePath, quarantine);
+    warn(`Corrupt runtime state quarantined as ${path.basename(quarantine)}.`);
+  } catch {
+    warn(`Corrupt runtime state at ${path.basename(filePath)} was preserved and skipped.`);
+  }
+}

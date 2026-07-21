@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, screen } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, screen, systemPreferences } = require("electron");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const path = require("node:path");
@@ -12,9 +12,12 @@ const runtime = require(path.join(process.cwd(), ".electron-build", "runtime.cjs
 const config = runtime.loadConfig(process.env);
 const runtimePaths = runtime.resolveRuntimePaths(process.cwd());
 const dataDir = runtimePaths.dataDir;
-const promptLoader = new runtime.PromptLoader(runtimePaths);
-const configStore = runtime.ConfigStore.inDataDir(dataDir);
 const opsWarnings = [];
+const promptLoader = new runtime.PromptLoader(runtimePaths, (warning) => {
+  opsWarnings.push(warning);
+  if (opsWarnings.length > 50) opsWarnings.shift();
+});
+const configStore = runtime.ConfigStore.inDataDir(dataDir);
 let transcriptEntries = [];
 let captureState = { capture: "stopped", vadSpeech: false, level: 0 };
 let queueState = { depth: 0, active: 0 };
@@ -23,7 +26,7 @@ const transcriptStore = new runtime.TranscriptStore(path.join(dataDir, "transcri
   if (opsWarnings.length > 50) opsWarnings.shift();
   broadcastOpsState();
 });
-const summaryStore = runtime.SummaryStore.inDataDir(dataDir);
+const summaryStore = runtime.SummaryStore.inDataDir(dataDir, recordOpsWarning);
 const notesStore = runtime.NotesStore.inDataDir(dataDir, configStore, (warning) => {
   opsWarnings.push(warning);
   if (opsWarnings.length > 50) opsWarnings.shift();
@@ -32,7 +35,7 @@ const signalStore = runtime.SignalStore.inDataDir(dataDir, process.cwd(), (warni
   opsWarnings.push(warning);
   if (opsWarnings.length > 50) opsWarnings.shift();
 });
-const boardStore = runtime.BoardStore.inDataDir(dataDir, signalStore);
+const boardStore = runtime.BoardStore.inDataDir(dataDir, signalStore, recordOpsWarning);
 const recapStore = runtime.RecapStore.inDataDir(dataDir, (warning) => {
   opsWarnings.push(warning);
   if (opsWarnings.length > 50) opsWarnings.shift();
@@ -46,12 +49,15 @@ const sessionOrchestrator = new runtime.SessionOrchestrator(
   config,
   contextBuilder,
   () => process.env.OPENAI_API_KEY,
+  fetch,
+  config.providerTimeoutMs,
 );
 const transcriptionTransport = new runtime.OpenAITranscriptionTransport(
   () => process.env.OPENAI_API_KEY,
   fetch,
   config.transcriptionModel,
   config.transcriptionFallbackModel,
+  config.providerTimeoutMs,
 );
 const transcriptionQueue = new runtime.TranscriptionQueue({
   dataDir,
@@ -69,7 +75,7 @@ const transcriptionQueue = new runtime.TranscriptionQueue({
 const summaryScheduler = new runtime.SummaryScheduler(
   transcriptStore,
   summaryStore,
-  new runtime.OpenAISummaryProvider(() => process.env.OPENAI_API_KEY, config.summaryModel),
+  new runtime.OpenAISummaryProvider(() => process.env.OPENAI_API_KEY, config.summaryModel, fetch, config.providerTimeoutMs),
 );
 
 const execFileAsync = promisify(execFile);
@@ -128,6 +134,7 @@ const recapJob = new runtime.RecapJobController(recapPipeline, (error) => {
   opsAggregator.setRecap({ phase: "error", completed: 0, total: 0, cacheUsed: false, lastError: error });
   recordOpsWarning(error);
 });
+let latestPreflight = { ok: false, checkedAt: new Date(0).toISOString(), checks: [] };
 
 const toolHost = runtime.createTargetToolHost({
   signals: signalStore,
@@ -822,7 +829,12 @@ function recordOpsWarning(error) {
 }
 
 ipcMain.handle("tools:list", () => freshToolSpecs());
-ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => ({ ...config.features, computerUse: false }));
+ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => ({
+  ...config.features,
+  computerUse: false,
+  microphoneId: config.microphoneId,
+  cameraId: config.cameraId,
+}));
 ipcMain.on(runtime.IPC_CHANNELS.cameraCaptureResponse, (event, payload) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
   let response;
@@ -883,6 +895,9 @@ ipcMain.on(runtime.IPC_CHANNELS.audioCaptureState, (_event, payload) => {
   broadcastOpsState();
 });
 ipcMain.handle(runtime.IPC_CHANNELS.opsState, () => buildOpsState());
+ipcMain.handle(runtime.IPC_CHANNELS.opsOpenOperator, async () => {
+  await createOperatorWindow();
+});
 ipcMain.handle(runtime.IPC_CHANNELS.opsSetBlock, async (_event, payload) => {
   const next = runtime.opsSetBlockPayloadSchema.parse(payload);
   await configStore.setBlock(next.block);
@@ -906,6 +921,7 @@ ipcMain.handle(runtime.IPC_CHANNELS.opsHardClose, (_event, payload) => {
 });
 ipcMain.handle(runtime.IPC_CHANNELS.boardState, () => boardStore.snapshot());
 ipcMain.handle(runtime.IPC_CHANNELS.deckState, () => recapStore.snapshot()?.deck ?? null);
+ipcMain.handle(runtime.IPC_CHANNELS.preflightGet, () => latestPreflight);
 
 // Compatibility for the previous renderer while the monolith is migrated incrementally.
 ipcMain.handle("realtime:create-token", async () => {
@@ -1865,6 +1881,41 @@ function fallbackMermaidDiagram(title) {
   return `flowchart TD\n  A["${safeTitle}"] --> B["Chart request received"]\n  B --> C["Aiden will show a safe fallback if syntax fails"]`;
 }
 
+const shutdownCoordinator = new runtime.ShutdownCoordinator([
+  {
+    name: "renderer media",
+    run: () => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.sessionHardCloseRequested);
+      }
+      sessionOrchestrator.close({ reason: "window" });
+    },
+  },
+  { name: "transcription queue", run: () => transcriptionQueue.shutdown({ drain: false }) },
+  { name: "summary scheduler", run: () => summaryScheduler.stop() },
+  { name: "recap job", run: () => recapJob.stop() },
+  {
+    name: "camera requests",
+    run: () => {
+      for (const pending of pendingCameraRequests.values()) {
+        pending.cleanup();
+        pending.reject(new Error("Aiden sluit af."));
+      }
+      pendingCameraRequests.clear();
+    },
+  },
+  {
+    name: "timers and broadcasts",
+    run: () => {
+      if (opsTick) clearInterval(opsTick);
+      opsTick = null;
+      opsBroadcaster.dispose();
+    },
+  },
+  { name: "shortcuts", run: () => globalShortcut.unregisterAll() },
+]);
+let shutdownComplete = false;
+
 app.whenReady().then(async () => {
   await Promise.all([
     promptLoader.bootstrap(),
@@ -1878,6 +1929,23 @@ app.whenReady().then(async () => {
     opsAggregator.setRecap({ phase: "ready", completed: 0, total: 0, cacheUsed: true });
   }
   await Promise.all([notesStore.load(), boardStore.load()]);
+  latestPreflight = await runtime.runPreflight({
+    dataDir,
+    prompts: promptLoader,
+    signals: signalStore,
+    minimumFreeBytes: config.minimumFreeDiskMb * 1024 * 1024,
+  });
+  for (const check of latestPreflight.checks.filter((item) => item.status === "fail" || item.status === "warn")) {
+    recordOpsWarning(`Preflight ${check.id}: ${check.message}`);
+  }
+  if (process.platform === "darwin") {
+    for (const mediaType of ["microphone", "camera"]) {
+      const status = systemPreferences.getMediaAccessStatus(mediaType);
+      if (status !== "granted") {
+        recordOpsWarning(`${mediaType} permission is ${status}; approve it only when explicitly testing that device in System Settings → Privacy & Security.`);
+      }
+    }
+  }
   transcriptEntries = await transcriptStore.recent(200);
   await transcriptionQueue.load();
   summaryScheduler.start();
@@ -1893,7 +1961,7 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send(runtime.IPC_CHANNELS.sessionToggleRequested, "shortcut");
   });
   if (!registered) {
-    console.warn(`Could not register Aiden activation shortcut: ${config.activationShortcut}`);
+    recordOpsWarning(`Could not register Aiden activation shortcut ${config.activationShortcut}; use the visible power button.`);
   }
   const operatorRegistered = globalShortcut.register(config.operatorShortcut, () => {
     if (operatorWindow && !operatorWindow.isDestroyed() && operatorWindow.isVisible()) {
@@ -1903,21 +1971,20 @@ app.whenReady().then(async () => {
     }
   });
   if (!operatorRegistered) {
-    console.warn(`Could not register operator shortcut: ${config.operatorShortcut}`);
+    recordOpsWarning(`Could not register operator shortcut ${config.operatorShortcut}; reopen the operator window from the visible UI.`);
   }
   broadcastOpsState();
 });
 
-app.on("will-quit", () => {
-  summaryScheduler.stop();
-  recapJob.cancel();
-  for (const pending of pendingCameraRequests.values()) {
-    pending.cleanup();
-    pending.reject(new Error("Aiden sluit af."));
-  }
-  if (opsTick) clearInterval(opsTick);
-  opsBroadcaster.dispose();
-  globalShortcut.unregisterAll();
+app.on("before-quit", (event) => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  void shutdownCoordinator.shutdown()
+    .catch((error) => recordOpsWarning(error instanceof Error ? error.message : String(error)))
+    .finally(() => {
+      shutdownComplete = true;
+      app.quit();
+    });
 });
 
 app.on("window-all-closed", () => {

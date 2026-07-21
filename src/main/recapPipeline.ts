@@ -167,6 +167,15 @@ export class RecapJobController {
     this.controller?.abort();
   }
 
+  async stop(): Promise<void> {
+    this.controller?.abort();
+    await this.running;
+  }
+
+  async wait(): Promise<void> {
+    await this.running;
+  }
+
   get isRunning(): boolean {
     return Boolean(this.running);
   }

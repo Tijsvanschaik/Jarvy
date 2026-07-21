@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { TranscriptEntry } from "../shared/types";
-import { atomicWriteJson, readJsonFile } from "./persistence";
+import { atomicWriteJson, quarantineFile, readJsonFileRecovering } from "./persistence";
 import type { TranscriptStore } from "./transcriptStore";
 
 const jobSchema = z.object({
@@ -48,6 +48,8 @@ export type TranscriptionQueueOptions = {
   sleep?: (milliseconds: number) => Promise<void>;
   onState?: (state: QueueOpsState) => void;
   onTranscript?: (entry: TranscriptEntry) => void;
+  warn?: (message: string) => void;
+  idFactory?: () => string;
 };
 
 export class TranscriptionQueue {
@@ -60,6 +62,7 @@ export class TranscriptionQueue {
   private lastError: string | undefined;
   private persistence = Promise.resolve();
   private flushing = Promise.resolve();
+  private accepting = true;
 
   constructor(private readonly options: TranscriptionQueueOptions) {
     this.chunksDir = path.join(options.dataDir, "audio", "chunks");
@@ -69,7 +72,13 @@ export class TranscriptionQueue {
   }
 
   async load(): Promise<void> {
-    const manifest = manifestSchema.parse((await readJsonFile(this.manifestPath)) ?? { jobs: [] });
+    const raw = await readJsonFileRecovering(this.manifestPath, this.options.warn);
+    const parsed = manifestSchema.safeParse(raw ?? { jobs: [] });
+    if (!parsed.success) {
+      this.options.warn?.("Transcription queue state was invalid; the raw file was quarantined and an empty queue started.");
+      await quarantineFile(this.manifestPath, this.options.warn ?? (() => undefined));
+    }
+    const manifest = parsed.success ? parsed.data : { jobs: [] };
     this.jobs = manifest.jobs
       .map((job) => (job.status === "active" ? { ...job, status: "pending" as const } : job))
       .sort(compareJobs);
@@ -80,6 +89,7 @@ export class TranscriptionQueue {
   }
 
   async enqueue(wav: ArrayBuffer, tsStart: number, tsEnd: number): Promise<TranscriptionJob> {
+    if (!this.accepting) throw new Error("Transcription queue is shutting down and no longer accepts audio.");
     if (!(wav instanceof ArrayBuffer) || wav.byteLength < 44 || wav.byteLength > 64 * 1024 * 1024) {
       throw new Error("Invalid audio chunk buffer.");
     }
@@ -87,7 +97,7 @@ export class TranscriptionQueue {
       throw new Error("Invalid audio chunk timestamps.");
     }
     await fs.mkdir(this.chunksDir, { recursive: true });
-    const id = crypto.randomUUID();
+    const id = this.options.idFactory?.() ?? crypto.randomUUID();
     const stamp = new Date(tsStart).toISOString().replace(/[:.]/g, "-");
     const chunkFile = `${stamp}-${id}.wav`;
     const wavPath = path.join(this.chunksDir, chunkFile);
@@ -133,6 +143,13 @@ export class TranscriptionQueue {
     }
     await this.flushing;
     await this.persistence;
+  }
+
+  async shutdown(options: { drain?: boolean } = {}): Promise<void> {
+    this.accepting = false;
+    if (options.drain) await this.waitForIdle();
+    await this.persistence;
+    await this.flushing;
   }
 
   private pump(): void {
@@ -234,6 +251,7 @@ export class OpenAITranscriptionTransport implements TranscriptionTransport {
     private readonly fetcher: typeof fetch = fetch,
     private readonly model = "gpt-4o-mini-transcribe",
     private readonly fallbackModel = "whisper-1",
+    private readonly timeoutMs = 60_000,
   ) {}
 
   async transcribe(request: TranscriptionRequest): Promise<string> {
@@ -259,14 +277,22 @@ export class OpenAITranscriptionTransport implements TranscriptionTransport {
     form.append("response_format", "json");
     form.append("prompt", request.prompt);
     let response: Response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       response = await this.fetcher("https://api.openai.com/v1/audio/transcriptions", {
         method: "POST",
         headers: { Authorization: `Bearer ${key}` },
         body: form,
+        signal: controller.signal,
       });
     } catch (error) {
-      throw new TranscriptionError(`Transcription network failure: ${error instanceof Error ? error.message : String(error)}`, true);
+      throw new TranscriptionError(
+        (error as Error).name === "AbortError" ? "Transcription timed out." : "Transcription network failure.",
+        true,
+      );
+    } finally {
+      clearTimeout(timer);
     }
     const body = await response.text();
     if (!response.ok) {
@@ -276,7 +302,7 @@ export class OpenAITranscriptionTransport implements TranscriptionTransport {
           /(not found|unsupported|does not exist|not available).{0,120}model/i.test(body));
       if (unsupportedModel) return { text: "", unsupportedModel: true };
       throw new TranscriptionError(
-        `Transcription failed: ${response.status} ${body}`,
+        `Transcription failed (${providerGuidance(response.status)}).`,
         response.status === 429 || response.status >= 500,
       );
     }
@@ -288,6 +314,13 @@ export class OpenAITranscriptionTransport implements TranscriptionTransport {
       throw new TranscriptionError("Transcription response was not valid JSON text.", false);
     }
   }
+}
+
+function providerGuidance(status: number): string {
+  if (status === 401 || status === 403) return `auth ${status}; verify API key`;
+  if (status === 429) return "quota/rate limit 429; review billing";
+  if (status >= 500) return `provider/network ${status}; retry`;
+  return `HTTP ${status}; verify audio/model configuration`;
 }
 
 function asTranscriptionError(error: unknown): TranscriptionError {

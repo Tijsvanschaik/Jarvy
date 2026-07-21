@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { boardStateSchema, domeinSchema } from "../shared/schemas";
 import type { BoardPin, Signaal } from "../shared/types";
-import { atomicWriteJson, readJsonFile } from "./persistence";
+import { atomicWriteJson, quarantineFile, readJsonFileRecovering } from "./persistence";
 import type { SignalStore } from "./signalStore";
 
 export type PinRequest = {
@@ -20,14 +20,21 @@ export class BoardStore {
   constructor(
     private readonly filePath: string,
     private readonly signals: SignalStore,
+    private readonly warn: (message: string) => void = () => undefined,
   ) {}
 
-  static inDataDir(dataDir: string, signals: SignalStore): BoardStore {
-    return new BoardStore(path.join(dataDir, "signalen", "board-state.json"), signals);
+  static inDataDir(dataDir: string, signals: SignalStore, warn?: (message: string) => void): BoardStore {
+    return new BoardStore(path.join(dataDir, "signalen", "board-state.json"), signals, warn);
   }
 
   async load(): Promise<void> {
-    this.pins = boardStateSchema.parse((await readJsonFile(this.filePath)) ?? { pins: [] }).pins;
+    const raw = await readJsonFileRecovering(this.filePath, this.warn);
+    const parsed = boardStateSchema.safeParse(raw ?? { pins: [] });
+    if (!parsed.success) {
+      this.warn("Board state was invalid; it was quarantined and skipped.");
+      await quarantineFile(this.filePath, this.warn);
+    }
+    this.pins = parsed.success ? parsed.data.pins : [];
   }
 
   snapshot(): { pins: BoardPin[] } {

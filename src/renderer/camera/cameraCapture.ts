@@ -147,7 +147,11 @@ export function mapCameraError(error: unknown): CameraCaptureError {
   if (error instanceof CameraCaptureError) return error;
   const name = error instanceof DOMException || error instanceof Error ? error.name : "";
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return new CameraCaptureError("DENIED", "Cameratoegang is geweigerd. Sta de camera toe en probeer opnieuw.");
+    const guidance =
+      typeof navigator !== "undefined" && navigator.platform.toLowerCase().includes("mac")
+        ? "Sta Aiden/Electron toe in macOS System Settings → Privacy & Security → Camera."
+        : "Sta Aiden/Electron toe in Windows Settings → Privacy → Camera.";
+    return new CameraCaptureError("DENIED", `Cameratoegang is geweigerd. ${guidance}`);
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
     return new CameraCaptureError("NOT_FOUND", "De gekozen camera is niet gevonden.");
