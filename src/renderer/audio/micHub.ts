@@ -29,7 +29,7 @@ export class MicHub {
   private readonly vad = new EnergyVad();
   private readonly chunker = new VadChunker((chunk) => {
     const wav = encodeMonoPcm16Wav(chunk.samples);
-    window.ricky.submitAudioChunk({ wav, tsStart: chunk.tsStart, tsEnd: chunk.tsEnd });
+    window.aiden.submitAudioChunk({ wav, tsStart: chunk.tsStart, tsEnd: chunk.tsEnd });
   });
 
   constructor(private readonly onState: (state: MicHubState) => void) {
@@ -64,7 +64,7 @@ export class MicHub {
     this.setState({ ...this.state, capture: muted ? "muted" : "capturing", vadSpeech: false, error: undefined });
   }
 
-  setRickyOutputPlaying(playing: boolean): void {
+  setAidenOutputPlaying(playing: boolean): void {
     window.clearTimeout(this.resumeTimer);
     if (playing) {
       this.chunker.setPaused(true);
@@ -122,7 +122,7 @@ export class MicHub {
       await context.audioWorklet.addModule(new URL("audio/pcm-capture-worklet.js", document.baseURI).href);
       await context.resume();
       const source = context.createMediaStreamSource(stream);
-      const worklet = new AudioWorkletNode(context, "ricky-pcm-capture");
+      const worklet = new AudioWorkletNode(context, "aiden-pcm-capture");
       const silentGain = context.createGain();
       silentGain.gain.value = 0;
       source.connect(worklet);
@@ -168,7 +168,7 @@ export class MicHub {
   private setState(state: MicHubState): void {
     this.state = state;
     this.onState(state);
-    window.ricky.reportCaptureState(state);
+    window.aiden.reportCaptureState(state);
   }
 }
 

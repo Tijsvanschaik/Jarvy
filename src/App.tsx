@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, PanelRight, Power, Send } from "lucide-react";
 import { ArtifactPanel } from "./components/ArtifactPanel";
-import { RickyFace } from "./components/RickyFace";
+import { AidenFace } from "./components/AidenFace";
 import { ActivationController, type ActivationCloseReason } from "./main/activationController";
-import { newEntry, RickyRealtimeClient, type MouthShape, type RealtimeTranscriptEntry, type RickyConnectionState, type RickyMood } from "./lib/realtime";
+import { newEntry, AidenRealtimeClient, type MouthShape, type RealtimeTranscriptEntry, type AidenConnectionState, type AidenMood } from "./lib/realtime";
 import { MicHub, type MicHubState, type RealtimeMicLease } from "./renderer/audio/micHub";
 import type { OpsStateEvent } from "./shared/ipc";
-import type { RickyArtifact } from "./shared/types";
+import type { AidenArtifact } from "./shared/types";
 
-type RickyMode = "display" | "computer";
+type AidenMode = "display" | "computer";
 
 export default function App() {
-  const [connectionState, setConnectionState] = useState<RickyConnectionState>("idle");
-  const [mood, setMood] = useState<RickyMood>("idle");
-  const [mode, setMode] = useState<RickyMode>("display");
-  const [artifact, setArtifact] = useState<RickyArtifact | null>(null);
+  const [connectionState, setConnectionState] = useState<AidenConnectionState>("idle");
+  const [mood, setMood] = useState<AidenMood>("idle");
+  const [mode, setMode] = useState<AidenMode>("display");
+  const [artifact, setArtifact] = useState<AidenArtifact | null>(null);
   const [artifactVisible, setArtifactVisible] = useState(true);
   const [artifactFullscreen, setArtifactFullscreen] = useState(false);
   const [showLog, setShowLog] = useState(false);
@@ -22,14 +22,14 @@ export default function App() {
   const [micMuted, setMicMuted] = useState(false);
   const [mouthShape, setMouthShape] = useState<MouthShape>({ open: 0, width: 0.18, round: 0, teeth: 0 });
   const [transcript, setTranscript] = useState<RealtimeTranscriptEntry[]>([
-    newEntry("system", "Ricky is ready. Connect, then talk naturally."),
+    newEntry("system", "Aiden is ready. Connect, then talk naturally."),
   ]);
   const [status, setStatus] = useState("Click Connect, then talk or type.");
   const [textPrompt, setTextPrompt] = useState("");
   const [computerUseEnabled, setComputerUseEnabled] = useState(false);
   const [micHubState, setMicHubState] = useState<MicHubState>({ capture: "stopped", vadSpeech: false });
   const [opsState, setOpsState] = useState<OpsStateEvent | null>(null);
-  const clientRef = useRef<RickyRealtimeClient | null>(null);
+  const clientRef = useRef<AidenRealtimeClient | null>(null);
   const realtimeMicLeaseRef = useRef<RealtimeMicLease | null>(null);
   const micHubRef = useRef<MicHub | null>(null);
   const activationSourceRef = useRef<"ui" | "shortcut">("ui");
@@ -46,19 +46,19 @@ export default function App() {
   const isConnected = connectionState === "connected";
 
   useEffect(() => {
-    void window.ricky.getFeatures().then((features) => setComputerUseEnabled(features.computerUse));
-    void window.ricky.getOpsState().then(setOpsState);
-    const unsubscribe = window.ricky.onSessionToggle(() => {
+    void window.aiden.getFeatures().then((features) => setComputerUseEnabled(features.computerUse));
+    void window.aiden.getOpsState().then(setOpsState);
+    const unsubscribe = window.aiden.onSessionToggle(() => {
       activationSourceRef.current = "shortcut";
       void controllerRef.current?.toggle("shortcut");
     });
-    const unsubscribeOps = window.ricky.onOpsState(setOpsState);
-    const unsubscribeTranscript = window.ricky.onTranscriptAppended((entry) => {
+    const unsubscribeOps = window.aiden.onOpsState(setOpsState);
+    const unsubscribeTranscript = window.aiden.onTranscriptAppended((entry) => {
       if (entry.source === "assistant") return;
       setTranscript((items) => [
         {
           id: entry.id,
-          role: entry.source === "assistant" ? ("ricky" as const) : ("user" as const),
+          role: entry.source === "assistant" ? ("aiden" as const) : ("user" as const),
           text: entry.text,
           at: new Date(entry.tsStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
         },
@@ -81,18 +81,18 @@ export default function App() {
     setMicMuted(false);
     setMood("thinking");
     setConnectionState("connecting");
-    setStatus("Ricky wordt geactiveerd en bouwt context…");
+    setStatus("Aiden wordt geactiveerd en bouwt context…");
     try {
       await micHubRef.current?.start();
     } catch {
       // Realtime retains its permission-safe direct microphone fallback.
     }
-    const activation = await window.ricky.activateSession({ source });
+    const activation = await window.aiden.activateSession({ source });
     if (!controllerRef.current?.isActive) {
-      await window.ricky.closeSession({ reason: source });
+      await window.aiden.closeSession({ reason: source });
       return;
     }
-    const client = new RickyRealtimeClient({
+    const client = new AidenRealtimeClient({
       onConnectionState: (state) => {
         setConnectionState(state);
         if (state === "error") setShowLog(true);
@@ -102,8 +102,8 @@ export default function App() {
       onMouthShape: setMouthShape,
       onTranscript: (entry) => {
         setTranscript((items) => [entry, ...items].slice(0, 80));
-        if (entry.role === "ricky") {
-          window.ricky.assistantSaid({ id: entry.id, text: entry.text, at: entry.at });
+        if (entry.role === "aiden") {
+          window.aiden.assistantSaid({ id: entry.id, text: entry.text, at: entry.at });
         }
       },
       onArtifact: (nextArtifact) => {
@@ -129,7 +129,7 @@ export default function App() {
       },
       onThumbnailReady: playThumbnailReadySound,
       onActivity: () => controllerRef.current?.activity(),
-      onOutputPlayback: (playing) => micHubRef.current?.setRickyOutputPlaying(playing),
+      onOutputPlayback: (playing) => micHubRef.current?.setAidenOutputPlaying(playing),
     });
     clientRef.current = client;
     realtimeMicLeaseRef.current = micHubRef.current?.createRealtimeBranch() ?? null;
@@ -144,8 +144,8 @@ export default function App() {
     setMicMuted(false);
     setConnectionState("idle");
     setMood("idle");
-    setStatus(reason === "inactivity" ? "Sessie gesloten na 20 seconden inactiviteit." : "Ricky is niet actief.");
-    await window.ricky.closeSession({ reason });
+    setStatus(reason === "inactivity" ? "Sessie gesloten na 20 seconden inactiviteit." : "Aiden is niet actief.");
+    await window.aiden.closeSession({ reason });
   }
 
   function toggleActivation(source: "ui" | "shortcut") {
@@ -183,9 +183,9 @@ export default function App() {
     micHubRef.current?.setAmbientMuted(micHubState.capture !== "muted");
   }
 
-  async function switchMode(nextMode: RickyMode) {
+  async function switchMode(nextMode: AidenMode) {
     setMode(nextMode);
-    const result = await window.ricky.executeTool({ name: "set_mode", arguments: { mode: nextMode } });
+    const result = await window.aiden.executeTool({ name: "set_mode", arguments: { mode: nextMode } });
     if (result.artifact) setArtifact(result.artifact);
     if (nextMode === "computer") {
       setArtifactVisible(false);
@@ -213,13 +213,13 @@ export default function App() {
   if (mode === "computer") {
     return (
       <main className="app-shell app-shell-mini">
-        <section className="mini-companion" aria-label="Ricky computer use mini mode">
-          <RickyFace mood={mood} mouthShape={mouthShape} />
+        <section className="mini-companion" aria-label="Aiden computer use mini mode">
+          <AidenFace mood={mood} mouthShape={mouthShape} />
           <button
             className="mini-restore-button"
             onClick={() => void switchMode("display")}
-            aria-label="Return to full Ricky window"
-            title="Return to full Ricky window"
+            aria-label="Return to full Aiden window"
+            title="Return to full Aiden window"
           >
             <Expand size={14} />
           </button>
@@ -234,7 +234,7 @@ export default function App() {
       <div className="window-drag-left-zone" aria-hidden="true" />
       <section className="companion-window">
         <section className="face-stage">
-          <RickyFace mood={mood} mouthShape={mouthShape} />
+          <AidenFace mood={mood} mouthShape={mouthShape} />
         </section>
 
         <footer className="bottom-console">
@@ -262,7 +262,7 @@ export default function App() {
                   if (event.key === "Enter") sendTextPrompt();
                 }}
                 autoFocus
-                placeholder={isConnected ? "Type to Ricky..." : "Click Connect first, then type..."}
+                placeholder={isConnected ? "Type to Aiden..." : "Click Connect first, then type..."}
               />
               <button onClick={sendTextPrompt} aria-label="Send typed prompt" title="Send typed prompt">
                 <Send size={15} />
@@ -275,8 +275,8 @@ export default function App() {
               className={isConnected ? "simple-button active" : connectionState === "error" ? "simple-button danger" : "simple-button"}
               onClick={() => toggleActivation("ui")}
               disabled={connectionState === "connecting"}
-              aria-label={isConnected ? "Deactivate Ricky" : "Activate Ricky"}
-              title={isConnected ? "Deactivate Ricky" : "Activate Ricky"}
+              aria-label={isConnected ? "Deactivate Aiden" : "Activate Aiden"}
+              title={isConnected ? "Deactivate Aiden" : "Activate Aiden"}
             >
               <Power size={16} />
             </button>
@@ -315,8 +315,8 @@ export default function App() {
                   setStatus("Click Connect first, then type.");
                 }
               }}
-              aria-label="Type to Ricky"
-              title="Type to Ricky"
+              aria-label="Type to Aiden"
+              title="Type to Aiden"
             >
               <Keyboard size={16} />
             </button>
@@ -367,7 +367,7 @@ export default function App() {
               {transcript.map((entry) => (
                 <article className={`entry entry-${entry.role}`} key={entry.id}>
                   <div>
-                    <strong>{entry.role === "ricky" ? "Ricky" : entry.role}</strong>
+                    <strong>{entry.role === "aiden" ? "Aiden" : entry.role}</strong>
                     <time>{entry.at}</time>
                   </div>
                   <p>{entry.text}</p>

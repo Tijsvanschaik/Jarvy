@@ -1,6 +1,6 @@
-# Ricky
+# Aiden
 
-Ricky is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, a visual artifact panel, image generation, web search, notes, and records. Development is Windows-first; the later production target is macOS.
+Aiden is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, a visual artifact panel, image generation, web search, notes, and records. Development is Windows-first; the later production target is macOS.
 
 It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 
@@ -12,7 +12,7 @@ It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 - YouTube thumbnail board with persistent numbered generations and image edits.
 - Optional Exa-powered web search.
 - Local notes and records stored at runtime under `data/`.
-- Global `F9` activation toggle (configurable with `RICKY_ACTIVATION_SHORTCUT`) plus the same lifecycle from the power button.
+- Global `F9` activation toggle (configurable with `AIDEN_ACTIVATION_SHORTCUT`) plus the same lifecycle from the power button.
 - Explicit-consent shared microphone capture with local PCM/VAD chunking, persistent transcription queue, and daily JSONL transcripts.
 - Computer-use code is retained but its UI and Realtime tools are disabled by default.
 
@@ -27,8 +27,8 @@ It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 ## Quick Start
 
 ```bash
-git clone https://github.com/rileybrown/rileyjarvis.git
-cd rileyjarvis
+git clone https://github.com/Tijsvanschaik/Jarvy.git
+cd Jarvy
 npm install
 cp .env.example .env.local
 npm run dev
@@ -47,15 +47,15 @@ EXA_API_KEY=your_exa_api_key_here
 
 Press `F9` or click the power button. That explicit action starts the shared room microphone (if it is not already running), while the main process reloads prompts, builds bounded context, and mints an ephemeral token through the GA `/v1/realtime/client_secrets` endpoint. Realtime receives a cloned microphone track.
 
-A second toggle closes the peer connection, data channel, and cloned Realtime track without stopping ambient room capture. A resettable 20-second inactivity timer does the same. Ricky never opens Realtime without explicit activation and has no wake word.
+A second toggle closes the peer connection, data channel, and cloned Realtime track without stopping ambient room capture. A resettable 20-second inactivity timer does the same. Aiden never opens Realtime without explicit activation and has no wake word.
 
 ## Room transcription
 
-Room capture is mono 16 kHz PCM internally and writes PCM16 WAV chunks under `data/audio/chunks/` before queueing any API request. The explicit thresholds are 300 ms pre-roll, 700 ms closing silence after a minimum 5-second chunk, 30-second hard cap, and a minimum one second of detected speech. Ricky output pauses ambient chunking and capture resumes 500 ms after playback.
+Room capture is mono 16 kHz PCM internally and writes PCM16 WAV chunks under `data/audio/chunks/` before queueing any API request. The explicit thresholds are 300 ms pre-roll, 700 ms closing silence after a minimum 5-second chunk, 30-second hard cap, and a minimum one second of detected speech. Aiden output pauses ambient chunking and capture resumes 500 ms after playback.
 
 This milestone ships an explicit energy-based VAD fallback. It does not claim Silero behavior. A local `@ricky0123/vad-web`/ONNX asset integration remains follow-up because adding it here would make Electron/Vite asset loading less reliable; there is no CDN dependency.
 
-Queue jobs are persisted, recovered after restart, processed FIFO with concurrency two, retried for transient failures, and transcribed in Dutch with `gpt-4o-mini-transcribe`. `whisper-1` is used only for model-related unsupported/not-found responses. Add event-specific names with comma-separated `RICKY_TRANSCRIPTION_NAMES`.
+Queue jobs are persisted, recovered after restart, processed FIFO with concurrency two, retried for transient failures, and transcribed in Dutch with `gpt-4o-mini-transcribe`. `whisper-1` is used only for model-related unsupported/not-found responses. Add event-specific names with comma-separated `AIDEN_TRANSCRIPTION_NAMES`.
 
 ## Prompts
 
@@ -73,10 +73,12 @@ On startup, missing files are copied to ignored runtime storage at `data/prompts
 Computer use defaults to off. To expose its mode control and tools explicitly:
 
 ```bash
-RICKY_ENABLE_COMPUTER_USE=true
+AIDEN_ENABLE_COMPUTER_USE=true
 ```
 
-When disabled, Ricky does not advertise or execute computer-control tools and does not request Accessibility or Screen Recording permissions.
+Legacy `RICKY_*` environment variables still work as fallbacks during the rename.
+
+When disabled, Aiden does not advertise or execute computer-control tools and does not request Accessibility or Screen Recording permissions.
 
 ## Development
 

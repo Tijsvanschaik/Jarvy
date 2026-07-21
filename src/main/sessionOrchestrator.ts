@@ -6,8 +6,8 @@ import {
   sessionClosePayloadSchema,
   type SessionActivateResult,
 } from "../shared/ipc";
-import type { RickyToolSpec } from "../shared/types";
-import type { RickyConfig } from "./config";
+import type { AidenToolSpec } from "../shared/types";
+import type { AidenConfig } from "./config";
 import type { ContextBuilder } from "./contextBuilder";
 
 const clientSecretResponseSchema = z.object({
@@ -25,7 +25,7 @@ export class SessionOrchestrator {
   private active = false;
 
   constructor(
-    private readonly config: RickyConfig,
+    private readonly config: AidenConfig,
     private readonly contextBuilder: ContextBuilder,
     private readonly apiKey: () => string | undefined,
     private readonly fetcher: typeof fetch = fetch,
@@ -33,7 +33,7 @@ export class SessionOrchestrator {
 
   async activate(
     payload: unknown,
-    tools: RickyToolSpec[],
+    tools: AidenToolSpec[],
     additionalInstructions = "",
   ): Promise<SessionActivateResult> {
     sessionActivatePayloadSchema.parse(payload);
@@ -47,7 +47,7 @@ export class SessionOrchestrator {
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
-        "OpenAI-Safety-Identifier": crypto.createHash("sha256").update("ricky-local-desktop").digest("hex"),
+        "OpenAI-Safety-Identifier": crypto.createHash("sha256").update("aiden-local-desktop").digest("hex"),
       },
       body: JSON.stringify({
         session: {
@@ -69,7 +69,7 @@ export class SessionOrchestrator {
             },
             output: { voice: this.config.realtimeVoice },
           },
-          tracing: { workflow_name: "Ricky Desktop Companion" },
+          tracing: { workflow_name: "Aiden Desktop Companion" },
         },
       }),
     });

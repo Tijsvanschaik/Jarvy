@@ -10,7 +10,7 @@ import {
 describe("IPC boundary schemas", () => {
   it("accepts canonical session and tool payloads", () => {
     expect(sessionActivatePayloadSchema.parse({ source: "shortcut" })).toEqual({ source: "shortcut" });
-    expect(toolCallPayloadSchema.parse({ name: "web_search", arguments: { query: "Ricky" } }).name).toBe("web_search");
+    expect(toolCallPayloadSchema.parse({ name: "web_search", arguments: { query: "Aiden" } }).name).toBe("web_search");
     expect(assistantSaidPayloadSchema.parse({ id: "1", text: "Hoi", at: "12:00" }).text).toBe("Hoi");
     expect(audioChunkPayloadSchema.parse({ wav: new ArrayBuffer(44), tsStart: 1, tsEnd: 2 }).wav.byteLength).toBe(44);
   });

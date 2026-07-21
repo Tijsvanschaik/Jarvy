@@ -38,7 +38,7 @@ export type RecapDeck = {
   createdAt: string;
 };
 
-export type RickyArtifact = {
+export type AidenArtifact = {
   title: string;
   kind:
     | "text"
@@ -56,21 +56,21 @@ export type RickyArtifact = {
   fullscreen?: boolean;
 };
 
-export type RickyToolSpec = {
+export type AidenToolSpec = {
   type: "function";
   name: string;
   description: string;
   parameters: Record<string, unknown>;
 };
 
-export type RickyToolCall = {
+export type AidenToolCall = {
   name: string;
   arguments: Record<string, unknown>;
 };
 
-export type RickyToolResult = {
+export type AidenToolResult = {
   ok: boolean;
-  artifact?: RickyArtifact;
+  artifact?: AidenArtifact;
   mode?: "display" | "computer";
   message?: string;
   error?: string;

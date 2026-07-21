@@ -1,4 +1,4 @@
-class RickyPcmCaptureProcessor extends AudioWorkletProcessor {
+class AidenPcmCaptureProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const input = inputs[0];
     if (input && input[0] && input[0].length) {
@@ -9,4 +9,4 @@ class RickyPcmCaptureProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("ricky-pcm-capture", RickyPcmCaptureProcessor);
+registerProcessor("aiden-pcm-capture", AidenPcmCaptureProcessor);

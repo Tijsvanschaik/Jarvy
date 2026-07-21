@@ -21,7 +21,7 @@ describe("TranscriptStore", () => {
     const warnings: string[] = [];
     const store = new TranscriptStore(directory, (warning) => warnings.push(warning));
     await store.load();
-    await store.append({ id: "b", tsStart: 3, tsEnd: 4, text: "Ricky", source: "assistant" });
+    await store.append({ id: "b", tsStart: 3, tsEnd: 4, text: "Aiden", source: "assistant" });
     expect((await store.list()).map((entry) => entry.id)).toEqual(["a", "b"]);
     expect(warnings).toEqual([expect.stringContaining(":2")]);
 

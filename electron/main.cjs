@@ -23,7 +23,7 @@ const transcriptStore = new runtime.TranscriptStore(path.join(dataDir, "transcri
   broadcastOpsState();
 });
 const summaryStore = runtime.SummaryStore.inDataDir(dataDir);
-const notesStore = new runtime.NotesStore(path.join(dataDir, "ricky-db.json"));
+const notesStore = new runtime.NotesStore(path.join(dataDir, "aiden-db.json"));
 const contextBuilder = new runtime.ContextBuilder(promptLoader, {
   summaries: summaryStore,
   transcript: transcriptStore,
@@ -59,14 +59,15 @@ const summaryScheduler = new runtime.SummaryScheduler(
 );
 
 const execFileAsync = promisify(execFile);
-const dbPath = path.join(dataDir, "ricky-db.json");
+const dbPath = path.join(dataDir, "aiden-db.json");
+const legacyDbPath = path.join(dataDir, "ricky-db.json");
 let currentMode = "display";
 let mainWindow = null;
 let normalWindowBounds = null;
 let dbWriteQueue = Promise.resolve();
 
-const RICKY_INSTRUCTIONS = `# Role and Objective
-You are Ricky, Riley's desktop AI operator. You speak through realtime voice and can use local tools.
+const AIDEN_INSTRUCTIONS = `# Role and Objective
+You are Aiden, Riley's desktop AI operator. You speak through realtime voice and can use local tools.
 
 # Personality and Tone
 Concise, calm, useful. Use a confident man's voice. Talk like a smart operator, not a chatbot.
@@ -77,7 +78,7 @@ Concise, calm, useful. Use a confident man's voice. Talk like a smart operator, 
 
 # Tool Behavior
 - Use read-only tools when the user's intent is clear.
-- When Riley says "show me the menu", "show me what I can do", or asks what Ricky can do, call show_menu immediately.
+- When Riley says "show me the menu", "show me what I can do", or asks what Aiden can do, call show_menu immediately.
 - For web search, notes, charts, records, image generation, and artifact display, act directly when the request is clear.
 - For thumbnail creation/editing, always use the thumbnail board tools, never generic image_generate and never artifact_show with imageLoading. Generate exactly one 16:9 image per request. Never generate multiple unless Riley separately asks again. Every generate/edit request gets a permanent database number that never changes, like #18 then #19 then #20. Do not renumber visible grid positions. Show paginated 3x3 pages of the permanent numbers. Do not show a standalone fullscreen loading animation for thumbnails. Use Riley's wording literally: do not invent elaborate extra concepts, fake text, or extra thumbnail ideas. For edits, use the exact existing numbered/selected image as input and make only the requested change.
 - The thumbnail board persists across sessions. If Riley references thumbnail #N, trust that permanent number and call the matching thumbnail tool. Do not say you cannot see old thumbnails. Use thumbnail_grid to refresh state or change pages if needed.
@@ -98,7 +99,7 @@ const toolSpecs = [
   {
     type: "function",
     name: "set_mode",
-    description: "Switch Ricky between display mode and computer use mode.",
+    description: "Switch Aiden between display mode and computer use mode.",
     parameters: {
       type: "object",
       properties: {
@@ -128,7 +129,7 @@ const toolSpecs = [
   {
     type: "function",
     name: "show_menu",
-    description: "Show Ricky's capability menu in the artifact panel. Call this when the user asks 'show me the menu', 'show me what I can do', or asks what Ricky can do.",
+    description: "Show Aiden's capability menu in the artifact panel. Call this when the user asks 'show me the menu', 'show me what I can do', or asks what Aiden can do.",
     parameters: {
       type: "object",
       properties: {},
@@ -180,7 +181,7 @@ const toolSpecs = [
   {
     type: "function",
     name: "thumbnail_generate",
-    description: "Generate exactly one 16:9 YouTube thumbnail into Ricky's persistent paginated thumbnail board. Uses Riley reference images if available. Assigns a new permanent number that never changes. Never generate multiple at once.",
+    description: "Generate exactly one 16:9 YouTube thumbnail into Aiden's persistent paginated thumbnail board. Uses Riley reference images if available. Assigns a new permanent number that never changes. Never generate multiple at once.",
     parameters: {
       type: "object",
       properties: {
@@ -246,7 +247,7 @@ const toolSpecs = [
   {
     type: "function",
     name: "note_add",
-    description: "Add a note to Ricky's fun local notes list.",
+    description: "Add a note to Aiden's fun local notes list.",
     parameters: {
       type: "object",
       properties: {
@@ -415,7 +416,12 @@ async function ensureData() {
   try {
     await fs.access(dbPath);
   } catch {
-    await fs.writeFile(dbPath, JSON.stringify(defaultDb(), null, 2));
+    try {
+      await fs.access(legacyDbPath);
+      await fs.copyFile(legacyDbPath, dbPath);
+    } catch {
+      await fs.writeFile(dbPath, JSON.stringify(defaultDb(), null, 2));
+    }
   }
 }
 
@@ -501,7 +507,7 @@ function requireComputerMode() {
     return {
       ok: false,
       needsMode: "computer",
-      message: "Computer control is disabled. Ask Ricky to switch to computer use mode first.",
+      message: "Computer control is disabled. Ask Aiden to switch to computer use mode first.",
     };
   }
   return null;
@@ -539,7 +545,7 @@ async function createWindow() {
     height: 760,
     minWidth: 420,
     minHeight: 520,
-    title: "Ricky",
+    title: "Aiden",
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
@@ -712,7 +718,7 @@ async function executeTool(_event, toolCall) {
         ok: true,
         mode: currentMode,
         artifact: {
-          title: "Ricky Mode",
+          title: "Aiden Mode",
           kind: "progress",
           content: `Mode switched to ${currentMode === "computer" ? "computer use" : "display"} mode.`,
         },
@@ -727,7 +733,7 @@ async function executeTool(_event, toolCall) {
       return {
         ok: true,
         artifact: {
-          title: "Ricky Menu",
+          title: "Aiden Menu",
           kind: "markdown",
           content: buildMenuMarkdown(),
         },
@@ -952,7 +958,7 @@ async function webSearch(args) {
     return {
       ok: false,
       missingEnv: "EXA_API_KEY",
-      message: "EXA_API_KEY is not set. Add it to .env.local to enable Ricky's web search tool.",
+      message: "EXA_API_KEY is not set. Add it to .env.local to enable Aiden's web search tool.",
     };
   }
 
@@ -989,7 +995,7 @@ async function webSearch(args) {
 function formatSearchMarkdown(query, results) {
   const cleanQuery = query.trim() || "Search";
   if (results.length === 0) {
-    return `# ${cleanQuery}\n\nNo strong web results came back for this search. Try a narrower query or ask Ricky to search a specific site.`;
+    return `# ${cleanQuery}\n\nNo strong web results came back for this search. Try a narrower query or ask Aiden to search a specific site.`;
   }
 
   const sections = results.slice(0, 8).map((result, index) => {
@@ -1006,7 +1012,7 @@ function formatSearchMarkdown(query, results) {
     return `### ${index + 1}. ${title}\n\n${text || "No snippet was returned for this result."}\n\n- Source: ${source}${published}\n- ${link}`;
   });
 
-  return [`# ${cleanQuery}`, `Ricky found ${results.length} source${results.length === 1 ? "" : "s"}.`, ...sections].join(
+  return [`# ${cleanQuery}`, `Aiden found ${results.length} source${results.length === 1 ? "" : "s"}.`, ...sections].join(
     "\n\n",
   );
 }
@@ -1027,13 +1033,13 @@ function hostname(url) {
 }
 
 function buildMenuMarkdown() {
-  return `# Ricky Menu
+  return `# Aiden Menu
 
 Here is what you can ask me to do.
 
 ## Voice and Conversation
 
-- Talk naturally with Ricky in realtime.
+- Talk naturally with Aiden in realtime.
 - Interrupt mid-response and ask follow-ups.
 - Ask unrelated questions while tools keep running.
 
@@ -1058,14 +1064,14 @@ Here is what you can ask me to do.
 
 ## Notes and Records
 
-- Add notes to Ricky's local note grid.
+- Add notes to Aiden's local note grid.
 - Create, search, update, and confirm-delete local database records.
 
 ## Computer Use Mode
 
 - "Switch to computer use mode."
 - Open apps, click, type, press Enter/Return, scroll, inspect the UI, and take screen snapshots.
-- Ricky asks before risky actions like sending, deleting, buying, changing settings, or sharing private info.
+- Aiden asks before risky actions like sending, deleting, buying, changing settings, or sharing private info.
 
 ## Good Starter Prompts
 
@@ -1105,7 +1111,7 @@ async function generateImage(args) {
   const url = data.data?.[0]?.url;
   if (b64) {
     await fs.mkdir(dataDir, { recursive: true });
-    const imagePath = path.join(dataDir, `ricky-image-${Date.now()}.png`);
+    const imagePath = path.join(dataDir, `aiden-image-${Date.now()}.png`);
     await fs.writeFile(imagePath, Buffer.from(b64, "base64"));
     return {
       ok: true,
@@ -1634,7 +1640,7 @@ function normalizeMermaidDiagram(diagram, title) {
 
 function fallbackMermaidDiagram(title) {
   const safeTitle = String(title || "Chart").replace(/["<>]/g, "");
-  return `flowchart TD\n  A["${safeTitle}"] --> B["Chart request received"]\n  B --> C["Ricky will show a safe fallback if syntax fails"]`;
+  return `flowchart TD\n  A["${safeTitle}"] --> B["Chart request received"]\n  B --> C["Aiden will show a safe fallback if syntax fails"]`;
 }
 
 app.whenReady().then(async () => {
@@ -1649,7 +1655,7 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send(runtime.IPC_CHANNELS.sessionToggleRequested, "shortcut");
   });
   if (!registered) {
-    console.warn(`Could not register Ricky activation shortcut: ${config.activationShortcut}`);
+    console.warn(`Could not register Aiden activation shortcut: ${config.activationShortcut}`);
   }
 });
 

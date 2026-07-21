@@ -1,20 +1,20 @@
 import type { SessionActivateResult } from "../shared/ipc";
 import type {
-  RickyArtifact,
-  RickyToolCall,
-  RickyToolResult,
-  RickyToolSpec,
+  AidenArtifact,
+  AidenToolCall,
+  AidenToolResult,
+  AidenToolSpec,
 } from "../shared/types";
 
 export type RealtimeTranscriptEntry = {
   id: string;
-  role: "user" | "ricky" | "system" | "tool";
+  role: "user" | "aiden" | "system" | "tool";
   text: string;
   at: string;
 };
 
-export type RickyConnectionState = "idle" | "connecting" | "connected" | "error";
-export type RickyMood = "idle" | "listening" | "thinking" | "speaking" | "working" | "error";
+export type AidenConnectionState = "idle" | "connecting" | "connected" | "error";
+export type AidenMood = "idle" | "listening" | "thinking" | "speaking" | "working" | "error";
 
 export type MouthShape = {
   open: number;
@@ -24,11 +24,11 @@ export type MouthShape = {
 };
 
 export type RealtimeCallbacks = {
-  onConnectionState: (state: RickyConnectionState) => void;
-  onMood: (mood: RickyMood) => void;
+  onConnectionState: (state: AidenConnectionState) => void;
+  onMood: (mood: AidenMood) => void;
   onMouthShape: (shape: MouthShape) => void;
   onTranscript: (entry: RealtimeTranscriptEntry) => void;
-  onArtifact: (artifact: RickyArtifact) => void;
+  onArtifact: (artifact: AidenArtifact) => void;
   onMode: (mode: "display" | "computer") => void;
   onStatus: (message: string) => void;
   onThumbnailReady: () => void;
@@ -63,7 +63,7 @@ type ResponseOutputItem = {
 
 const realtimeUrl = "https://api.openai.com/v1/realtime/calls";
 
-export class RickyRealtimeClient {
+export class AidenRealtimeClient {
   private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
   private micStream: MediaStream | null = null;
@@ -71,7 +71,7 @@ export class RickyRealtimeClient {
   private remoteAudio: HTMLAudioElement | null = null;
   private callbacks: RealtimeCallbacks;
   private currentAssistantText = "";
-  private toolSpecs: RickyToolSpec[] = [];
+  private toolSpecs: AidenToolSpec[] = [];
   private toolRunning = false;
   private audioContext: AudioContext | null = null;
   private outputAnalyser: AnalyserNode | null = null;
@@ -98,10 +98,10 @@ export class RickyRealtimeClient {
     this.muted = false;
     this.callbacks.onConnectionState("connecting");
     this.callbacks.onMood("thinking");
-    this.callbacks.onStatus("Connecting to Ricky…");
+    this.callbacks.onStatus("Connecting to Aiden…");
 
     try {
-      this.toolSpecs = await window.ricky.getToolSpecs();
+      this.toolSpecs = await window.aiden.getToolSpecs();
       const token = activation.token;
       const pc = new RTCPeerConnection();
       const audio = document.createElement("audio");
@@ -145,7 +145,7 @@ export class RickyRealtimeClient {
       dc.addEventListener("open", () => {
         this.callbacks.onConnectionState("connected");
         this.callbacks.onMood("idle");
-        this.callbacks.onStatus("Ricky is live. Talk naturally, mute the mic, or use Keyboard.");
+        this.callbacks.onStatus("Aiden is live. Talk naturally, mute the mic, or use Keyboard.");
       });
       dc.addEventListener("close", () => {
         if (this.pc) {
@@ -310,7 +310,7 @@ export class RickyRealtimeClient {
       this.callbacks.onActivity();
       const output = event.response?.output || [];
       const spoken = this.currentAssistantText || output.map(collectOutputText).filter(Boolean).join("\n");
-      if (spoken) this.callbacks.onTranscript(newEntry("ricky", spoken));
+      if (spoken) this.callbacks.onTranscript(newEntry("aiden", spoken));
       this.currentAssistantText = "";
 
       const functionCalls = output.filter((item) => item.type === "function_call" && item.name && item.call_id);
@@ -348,22 +348,22 @@ export class RickyRealtimeClient {
         this.callbacks.onArtifact({
           title: "Generating Image",
           kind: "imageLoading",
-          content: typeof parsedArgs.prompt === "string" ? parsedArgs.prompt : "Ricky is generating an image.",
+          content: typeof parsedArgs.prompt === "string" ? parsedArgs.prompt : "Aiden is generating an image.",
         });
       }
       if (name === "thumbnail_generate" || name === "thumbnail_edit") {
-        const loadingResult = await window.ricky.executeTool({
+        const loadingResult = await window.aiden.executeTool({
           name: "thumbnail_loading_prepare",
           arguments: {
             ...parsedArgs,
             mode: name === "thumbnail_edit" ? "edit" : "generate",
           },
-        } satisfies RickyToolCall);
+        } satisfies AidenToolCall);
         if (typeof loadingResult.runId === "string") parsedArgs.runId = loadingResult.runId;
         if (typeof loadingResult.targetId === "string") parsedArgs.targetId = loadingResult.targetId;
         if (loadingResult.artifact) this.callbacks.onArtifact(loadingResult.artifact);
       }
-      const result = await window.ricky.executeTool({ name, arguments: parsedArgs } satisfies RickyToolCall);
+      const result = await window.aiden.executeTool({ name, arguments: parsedArgs } satisfies AidenToolCall);
       if (result.mode === "display" || result.mode === "computer") {
         this.callbacks.onMode(result.mode);
       }
@@ -377,7 +377,7 @@ export class RickyRealtimeClient {
     this.toolRunning = false;
   }
 
-  private async returnToolOutput(callId: string, result: RickyToolResult): Promise<void> {
+  private async returnToolOutput(callId: string, result: AidenToolResult): Promise<void> {
     this.sendEvent({
       type: "conversation.item.create",
       item: {
@@ -527,7 +527,7 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
-function sanitizeToolResult(result: RickyToolResult): RickyToolResult {
+function sanitizeToolResult(result: AidenToolResult): AidenToolResult {
   if (!result.artifact) return result;
 
   const { artifact, ...rest } = result;

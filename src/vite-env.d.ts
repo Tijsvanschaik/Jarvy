@@ -11,19 +11,19 @@ import type {
   SessionClosePayload,
   TranscriptEntryEvent,
 } from "./shared/ipc";
-import type { RickyToolCall, RickyToolResult, RickyToolSpec } from "./shared/types";
+import type { AidenToolCall, AidenToolResult, AidenToolSpec } from "./shared/types";
 
 declare global {
   interface Window {
-    ricky: {
+    aiden: {
       activateSession: (payload: SessionActivatePayload) => Promise<SessionActivateResult>;
       closeSession: (payload: SessionClosePayload) => Promise<void>;
       assistantSaid: (payload: AssistantSaidPayload) => void;
       submitAudioChunk: (payload: AudioChunkPayload) => void;
       reportCaptureState: (payload: CaptureState) => void;
       onSessionToggle: (listener: (source: "shortcut") => void) => () => void;
-      executeTool: (toolCall: RickyToolCall) => Promise<RickyToolResult>;
-      getToolSpecs: () => Promise<RickyToolSpec[]>;
+      executeTool: (toolCall: AidenToolCall) => Promise<AidenToolResult>;
+      getToolSpecs: () => Promise<AidenToolSpec[]>;
       getFeatures: () => Promise<{ computerUse: boolean }>;
       getOpsState: () => Promise<OpsStateEvent>;
       setOpsBlock: (payload: OpsSetBlockPayload) => Promise<OpsStateEvent>;

@@ -21,7 +21,7 @@ import {
   type TranscriptEntryEvent,
 } from "./shared/ipc";
 
-contextBridge.exposeInMainWorld("ricky", {
+contextBridge.exposeInMainWorld("aiden", {
   activateSession: async (payload: SessionActivatePayload) =>
     sessionActivateResultSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.sessionActivate, sessionActivatePayloadSchema.parse(payload)),

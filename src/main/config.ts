@@ -1,4 +1,4 @@
-export type RickyConfig = {
+export type AidenConfig = {
   realtimeModel: string;
   realtimeVoice: string;
   activationShortcut: string;
@@ -16,22 +16,27 @@ function enabled(value: string | undefined): boolean {
   return value === "1" || value?.toLowerCase() === "true";
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): RickyConfig {
+function envValue(env: NodeJS.ProcessEnv, primary: string, legacy: string): string | undefined {
+  return env[primary] || env[legacy];
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AidenConfig {
   return {
-    // Keep provider choices centralized; these defaults match the working app.
-    realtimeModel: env.RICKY_REALTIME_MODEL || "gpt-realtime-2",
-    realtimeVoice: env.RICKY_REALTIME_VOICE || "cedar",
-    activationShortcut: env.RICKY_ACTIVATION_SHORTCUT || "F9",
+    realtimeModel: envValue(env, "AIDEN_REALTIME_MODEL", "RICKY_REALTIME_MODEL") || "gpt-realtime-2",
+    realtimeVoice: envValue(env, "AIDEN_REALTIME_VOICE", "RICKY_REALTIME_VOICE") || "cedar",
+    activationShortcut: envValue(env, "AIDEN_ACTIVATION_SHORTCUT", "RICKY_ACTIVATION_SHORTCUT") || "F9",
     inactivityMs: 20_000,
-    transcriptionModel: env.RICKY_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe",
-    transcriptionFallbackModel: env.RICKY_TRANSCRIPTION_FALLBACK_MODEL || "whisper-1",
-    transcriptionVocabulary: (env.RICKY_TRANSCRIPTION_NAMES || "")
+    transcriptionModel:
+      envValue(env, "AIDEN_TRANSCRIPTION_MODEL", "RICKY_TRANSCRIPTION_MODEL") || "gpt-4o-mini-transcribe",
+    transcriptionFallbackModel:
+      envValue(env, "AIDEN_TRANSCRIPTION_FALLBACK_MODEL", "RICKY_TRANSCRIPTION_FALLBACK_MODEL") || "whisper-1",
+    transcriptionVocabulary: (envValue(env, "AIDEN_TRANSCRIPTION_NAMES", "RICKY_TRANSCRIPTION_NAMES") || "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),
-    summaryModel: env.RICKY_SUMMARY_MODEL || "gpt-4.1-mini",
+    summaryModel: envValue(env, "AIDEN_SUMMARY_MODEL", "RICKY_SUMMARY_MODEL") || "gpt-4.1-mini",
     features: {
-      computerUse: enabled(env.RICKY_ENABLE_COMPUTER_USE),
+      computerUse: enabled(envValue(env, "AIDEN_ENABLE_COMPUTER_USE", "RICKY_ENABLE_COMPUTER_USE")),
     },
   };
 }

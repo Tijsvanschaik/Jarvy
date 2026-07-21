@@ -1,12 +1,12 @@
 import type { CSSProperties } from "react";
-import type { MouthShape, RickyMood } from "../lib/realtime";
+import type { MouthShape, AidenMood } from "../lib/realtime";
 
-type RickyFaceProps = {
-  mood: RickyMood;
+type AidenFaceProps = {
+  mood: AidenMood;
   mouthShape: MouthShape;
 };
 
-export function RickyFace({ mood, mouthShape }: RickyFaceProps) {
+export function AidenFace({ mood, mouthShape }: AidenFaceProps) {
   return (
     <div
       className={`face face-${mood}`}
@@ -18,7 +18,7 @@ export function RickyFace({ mood, mouthShape }: RickyFaceProps) {
           "--mouth-teeth": mouthShape.teeth.toFixed(3),
         } as CSSProperties
       }
-      aria-label={`Ricky mood: ${mood}`}
+      aria-label={`Aiden mood: ${mood}`}
     >
       <div className="eye-row">
         <div className="eye">
