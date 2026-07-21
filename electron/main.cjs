@@ -33,6 +33,10 @@ const signalStore = runtime.SignalStore.inDataDir(dataDir, process.cwd(), (warni
   if (opsWarnings.length > 50) opsWarnings.shift();
 });
 const boardStore = runtime.BoardStore.inDataDir(dataDir, signalStore);
+const recapStore = runtime.RecapStore.inDataDir(dataDir, (warning) => {
+  opsWarnings.push(warning);
+  if (opsWarnings.length > 50) opsWarnings.shift();
+});
 const contextBuilder = new runtime.ContextBuilder(promptLoader, {
   summaries: summaryStore,
   transcript: transcriptStore,
@@ -77,6 +81,7 @@ let operatorWindow = null;
 let normalWindowBounds = null;
 let dbWriteQueue = Promise.resolve();
 let opsTick = null;
+const pendingCameraRequests = new Map();
 
 const opsAggregator = new runtime.OpsStateAggregator(
   {
@@ -95,12 +100,53 @@ const opsBroadcaster = new runtime.ThrottledBroadcaster(() => {
   }
 });
 
+const visionProvider = new runtime.OpenAIVisionProvider(
+  () => process.env.OPENAI_API_KEY,
+  config.visionModel,
+  fetch,
+  5_000,
+);
+const recapPipeline = new runtime.RecapPipeline(
+  {
+    transcript: () => transcriptStore.list(),
+    summaries: () => summaryStore.list(),
+    notes: () => notesStore.list(),
+  },
+  recapStore,
+  new runtime.OpenAIRecapProvider(() => process.env.OPENAI_API_KEY, config.recapModel),
+  new runtime.OpenAIRecapImageProvider(() => process.env.OPENAI_API_KEY, config.recapImageModel),
+  {
+    onProgress: (progress) => {
+      opsAggregator.setRecap(progress);
+      broadcastOpsState();
+    },
+    onDeck: broadcastDeck,
+    onWarning: recordOpsWarning,
+  },
+);
+const recapJob = new runtime.RecapJobController(recapPipeline, (error) => {
+  opsAggregator.setRecap({ phase: "error", completed: 0, total: 0, cacheUsed: false, lastError: error });
+  recordOpsWarning(error);
+});
+
 const toolHost = runtime.createTargetToolHost({
   signals: signalStore,
   board: boardStore,
   notes: notesStore,
   generateImage: (args, signal) => generateImage(args, signal),
   searchWeb: (args, signal) => webSearch(args, signal),
+  cameraVision: {
+    enabled: config.features.cameraVision,
+    look: async (frames, signal) => {
+      if (!sessionOrchestrator.isActive) throw new Error("Activeer Aiden voordat je de camera gebruikt.");
+      const captured = await requestCameraFrames(frames, signal);
+      return visionProvider.describe(captured, signal);
+    },
+  },
+  recap: {
+    enabled: config.features.recap,
+    start: () => recapJob.start(),
+  },
   onBoardPin: broadcastBoard,
   onNoteAdded: broadcastNote,
 });
@@ -729,6 +775,46 @@ function broadcastNote(note) {
   broadcastOpsState();
 }
 
+function broadcastDeck(deck, progressive) {
+  const event = runtime.deckShowEventSchema.parse({ deck, progressive });
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.deckShow, event);
+  }
+}
+
+function requestCameraFrames(frames, signal) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return Promise.reject(new Error("Het Aiden-venster is niet beschikbaar voor de camera."));
+  }
+  const correlationId = crypto.randomUUID();
+  const timeoutMs = Math.min(4_000, config.cameraTimeoutMs);
+  const request = runtime.cameraCaptureRequestSchema.parse({
+    correlationId,
+    frames,
+    cameraId: config.cameraId,
+    timeoutMs,
+  });
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      const pending = pendingCameraRequests.get(correlationId);
+      if (pending?.timer) clearTimeout(pending.timer);
+      signal?.removeEventListener("abort", abort);
+      pendingCameraRequests.delete(correlationId);
+    };
+    const abort = () => {
+      cleanup();
+      reject(new Error("De camera-opdracht is gestopt."));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("De camera reageerde niet op tijd."));
+    }, timeoutMs + 250);
+    pendingCameraRequests.set(correlationId, { resolve, reject, cleanup, timer });
+    signal?.addEventListener("abort", abort, { once: true });
+    mainWindow.webContents.send(runtime.IPC_CHANNELS.cameraCaptureRequest, request);
+  });
+}
+
 function recordOpsWarning(error) {
   opsWarnings.push(error instanceof Error ? error.message : String(error));
   if (opsWarnings.length > 50) opsWarnings.shift();
@@ -737,6 +823,20 @@ function recordOpsWarning(error) {
 
 ipcMain.handle("tools:list", () => freshToolSpecs());
 ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => ({ ...config.features, computerUse: false }));
+ipcMain.on(runtime.IPC_CHANNELS.cameraCaptureResponse, (event, payload) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  let response;
+  try {
+    response = runtime.cameraCaptureResponseSchema.parse(payload);
+  } catch {
+    return;
+  }
+  const pending = pendingCameraRequests.get(response.correlationId);
+  if (!pending) return;
+  pending.cleanup();
+  if (response.ok) pending.resolve(response.frames);
+  else pending.reject(new Error(response.error));
+});
 ipcMain.handle(runtime.IPC_CHANNELS.sessionActivate, async (_event, payload) => {
   const result = await sessionOrchestrator.activate(
     payload,
@@ -805,6 +905,7 @@ ipcMain.handle(runtime.IPC_CHANNELS.opsHardClose, (_event, payload) => {
   return state;
 });
 ipcMain.handle(runtime.IPC_CHANNELS.boardState, () => boardStore.snapshot());
+ipcMain.handle(runtime.IPC_CHANNELS.deckState, () => recapStore.snapshot()?.deck ?? null);
 
 // Compatibility for the previous renderer while the monolith is migrated incrementally.
 ipcMain.handle("realtime:create-token", async () => {
@@ -1765,7 +1866,17 @@ function fallbackMermaidDiagram(title) {
 }
 
 app.whenReady().then(async () => {
-  await Promise.all([promptLoader.bootstrap(), configStore.load(), transcriptStore.load(), summaryStore.load(), signalStore.bootstrap()]);
+  await Promise.all([
+    promptLoader.bootstrap(),
+    configStore.load(),
+    transcriptStore.load(),
+    summaryStore.load(),
+    signalStore.bootstrap(),
+    recapStore.load(),
+  ]);
+  if (recapStore.snapshot()) {
+    opsAggregator.setRecap({ phase: "ready", completed: 0, total: 0, cacheUsed: true });
+  }
   await Promise.all([notesStore.load(), boardStore.load()]);
   transcriptEntries = await transcriptStore.recent(200);
   await transcriptionQueue.load();
@@ -1799,6 +1910,11 @@ app.whenReady().then(async () => {
 
 app.on("will-quit", () => {
   summaryScheduler.stop();
+  recapJob.cancel();
+  for (const pending of pendingCameraRequests.values()) {
+    pending.cleanup();
+    pending.reject(new Error("Aiden sluit af."));
+  }
   if (opsTick) clearInterval(opsTick);
   opsBroadcaster.dispose();
   globalShortcut.unregisterAll();

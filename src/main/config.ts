@@ -8,13 +8,26 @@ export type AidenConfig = {
   transcriptionFallbackModel: string;
   transcriptionVocabulary: string[];
   summaryModel: string;
+  visionModel: string;
+  recapModel: string;
+  recapImageModel: string;
+  cameraId?: string;
+  cameraTimeoutMs: number;
   features: {
     computerUse: boolean;
+    cameraVision: boolean;
+    recap: boolean;
+    directRealtimeVision: false;
   };
 };
 
 function enabled(value: string | undefined): boolean {
   return value === "1" || value?.toLowerCase() === "true";
+}
+
+function enabledByDefault(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) return defaultValue;
+  return enabled(value);
 }
 
 function envValue(env: NodeJS.ProcessEnv, primary: string, legacy: string): string | undefined {
@@ -38,8 +51,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AidenConfig {
       .map((value) => value.trim())
       .filter(Boolean),
     summaryModel: envValue(env, "AIDEN_SUMMARY_MODEL", "RICKY_SUMMARY_MODEL") || "gpt-4.1-mini",
+    visionModel: env.AIDEN_VISION_MODEL || "gpt-4.1-mini",
+    recapModel: env.AIDEN_RECAP_MODEL || "gpt-4.1-mini",
+    recapImageModel: env.AIDEN_RECAP_IMAGE_MODEL || "gpt-image-2",
+    cameraId: env.AIDEN_CAMERA_ID || undefined,
+    cameraTimeoutMs: Math.max(3_000, Number(env.AIDEN_CAMERA_TIMEOUT_MS) || 4_000),
     features: {
       computerUse: enabled(envValue(env, "AIDEN_ENABLE_COMPUTER_USE", "RICKY_ENABLE_COMPUTER_USE")),
+      cameraVision: enabledByDefault(env.AIDEN_ENABLE_CAMERA_VISION, Boolean(env.OPENAI_API_KEY)),
+      recap: enabledByDefault(env.AIDEN_ENABLE_RECAP, Boolean(env.OPENAI_API_KEY)),
+      directRealtimeVision: false,
     },
   };
 }

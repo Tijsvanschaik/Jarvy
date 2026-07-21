@@ -4,6 +4,9 @@ import {
   audioChunkPayloadSchema,
   assistantSaidPayloadSchema,
   captureStateSchema,
+  cameraCaptureRequestSchema,
+  cameraCaptureResponseSchema,
+  deckShowEventSchema,
   opsStateEventSchema,
   opsHardClosePayloadSchema,
   opsSetBlockPayloadSchema,
@@ -16,6 +19,9 @@ import {
   type AudioChunkPayload,
   type AssistantSaidPayload,
   type CaptureState,
+  type CameraCaptureResponse,
+  type CameraCaptureRequest,
+  type DeckShowEvent,
   type OpsSetBlockPayload,
   type OpsHardClosePayload,
   type SessionActivatePayload,
@@ -24,7 +30,7 @@ import {
   type ToolCallPayload,
   type TranscriptEntryEvent,
 } from "./shared/ipc";
-import { boardStateSchema, oogstNotitieSchema } from "./shared/schemas";
+import { boardStateSchema, oogstNotitieSchema, recapDeckSchema } from "./shared/schemas";
 
 contextBridge.exposeInMainWorld("aiden", {
   activateSession: async (payload: SessionActivatePayload) =>
@@ -88,6 +94,20 @@ contextBridge.exposeInMainWorld("aiden", {
     ipcRenderer.on(IPC_CHANNELS.noteAdded, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.noteAdded, handler);
   },
+  onCameraCaptureRequest: (listener: (request: CameraCaptureRequest) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) =>
+      listener(cameraCaptureRequestSchema.parse(payload));
+    ipcRenderer.on(IPC_CHANNELS.cameraCaptureRequest, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.cameraCaptureRequest, handler);
+  },
+  respondCameraCapture: (response: CameraCaptureResponse) =>
+    ipcRenderer.send(IPC_CHANNELS.cameraCaptureResponse, cameraCaptureResponseSchema.parse(response)),
+  onDeckShow: (listener: (event: DeckShowEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(deckShowEventSchema.parse(payload));
+    ipcRenderer.on(IPC_CHANNELS.deckShow, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.deckShow, handler);
+  },
+  getRecapDeck: async () => recapDeckSchema.nullable().parse(await ipcRenderer.invoke(IPC_CHANNELS.deckState)),
 
   // Transitional adapter for renderer code from before session:activate.
   createRealtimeToken: async () => {

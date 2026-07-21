@@ -1,6 +1,6 @@
 # Aiden
 
-Aiden is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, a visual signal board, image generation, web search, structured oogst notes, and a separate operator console. Development is Windows-first; macOS remains compatible.
+Aiden is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, explicit webcam vision, cached recap decks, a visual signal board, image generation, web search, structured oogst notes, and a separate operator console. Development is Windows-first; macOS remains compatible.
 
 It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 
@@ -14,6 +14,8 @@ It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 - Append-only structured notes stored at runtime under `data/oogst/notities.jsonl`.
 - Global `F9` activation toggle (configurable with `AIDEN_ACTIVATION_SHORTCUT`) plus the same lifecycle from the power button.
 - Explicit-consent shared microphone capture with local PCM/VAD chunking, persistent transcription queue, and daily JSONL transcripts.
+- Explicit `kijk_mee` webcam capture with transient JPEG frames and main-process vision.
+- Async map-reduce recap decks with text-first display and progressive images.
 - Computer-use code is retained but its UI and Realtime tools are disabled by default.
 
 ## Requirements
@@ -69,6 +71,22 @@ Pins are atomically persisted to `data/signalen/board-state.json` and restored a
 
 `maak_notitie` appends crash-safely to `data/oogst/notities.jsonl`. Main assigns the UUID, ISO timestamp, and current ConfigStore block. Corrupt lines are skipped with an operator warning. Valid notes feed the bounded ContextBuilder oogst section on the next activation.
 
+## Webcam vision and routine 4
+
+The camera never opens at startup. Activate Aiden, explicitly ask him to look during routine 4, and approve the operating-system camera prompt if it appears. `kijk_mee` captures one frame by default (or 1–3 requested frames about one second apart), scales to at most 1024 px wide, sends transient JPEG data over the isolated bridge, and stops every camera track after success, denial, timeout, or failure.
+
+The OpenAI key remains in main. The default provider path uses `AIDEN_VISION_MODEL=gpt-4.1-mini`; direct Realtime image input is deliberately advertised as unsupported. Rehearse with: “Aiden, kijk één keer mee en verbind één feitelijke observatie met wat je net hoorde.” Unit tests mock media devices and never open real hardware.
+
+Use `AIDEN_CAMERA_ID` for a specific device, `AIDEN_CAMERA_TIMEOUT_MS` for capture timeout, and `AIDEN_ENABLE_CAMERA_VISION=false` to hide the tool. Without an explicit flag, camera vision is enabled when `OPENAI_API_KEY` exists.
+
+## Recap deck and routine 5
+
+`start_recap` returns immediately. A bounded map call runs per block over the block summary, literal transcript rows, and block notes; one reduce call creates strict Dutch deck JSON. Participant slides are then restricted in code to literal notes stored for that named participant. The text deck is shown before optional images, while the operator window reports phase, counts, cache use, and controlled errors.
+
+Cache and deck state are atomically stored at `data/recap/deck.json`; generated slide images live under `data/recap/images/`. The cache key includes transcript, summaries, notes, and schema version. Unchanged calls reuse it; transcript growth invalidates it; corrupt state raises an operator warning and recomputes safely.
+
+Rehearse routine 5 after recording multiple blocks and participant notes: “Aiden, maak de recap.” Confirm Aiden announces brief thinking, the text slides appear first, participant bullets match saved notes, and images arrive progressively without one failed image removing the deck. Configure with `AIDEN_RECAP_MODEL`, `AIDEN_RECAP_IMAGE_MODEL`, or `AIDEN_ENABLE_RECAP=false`.
+
 ## Demo routine 2 rehearsal
 
 1. Activate Aiden with `F9`.
@@ -100,7 +118,7 @@ On startup, missing files are copied to ignored runtime storage at `data/prompts
 
 ## Feature flags
 
-Computer-use implementation is retained only as transitional code and defaults to off. The active ToolHost exposes only `zoek_signaal`, `toon_op_bord`, `maak_notitie`, `genereer_beeld`, and `zoek_web`. Computer-use and old thumbnail tools are not advertised or executable through Realtime, and no Accessibility or Screen Recording flow is started. `kijk_mee` and `start_recap` exist only as disabled internal stubs for the next milestone.
+Computer-use implementation is retained only as transitional code and defaults to off. The active ToolHost always exposes `zoek_signaal`, `toon_op_bord`, `maak_notitie`, `genereer_beeld`, and `zoek_web`, and conditionally exposes `kijk_mee` and `start_recap`. Computer-use and old thumbnail tools are not advertised or executable through Realtime, and no Accessibility or Screen Recording flow is started.
 
 Use `AIDEN_ENABLE_COMPUTER_USE=true` only for transitional testing. Legacy `RICKY_*` environment variables remain supported as fallbacks during the rename.
 
@@ -126,7 +144,7 @@ The Electron build bundles the typed preload and modular main foundations with e
 
 ## Runtime Data
 
-The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, oogst notes, the signal library/board state, and generated images. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
+The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, oogst notes, the signal library/board state, recap cache/images, and generated images. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
 
 Do not commit:
 
@@ -140,6 +158,7 @@ Do not commit:
 - API keys are loaded only from local environment files.
 - `.env.local` and all `.env.*` files are ignored except `.env.example`.
 - Generated images and local database files are ignored.
+- Webcam frames are transient and are never persisted or added to ops state/logs.
 - Computer-use helpers are inactive transitional code and are absent from active tool specs.
 
 Before publishing a fork, run:
@@ -155,7 +174,7 @@ Then verify that no local secrets or runtime data are staged.
 
 ## Next milestone
 
-The exact next milestone is: **webcam vision + recap map-reduce + routines 4/5**.
+The exact next milestone is: **final hardening, replay end-to-end, macOS transfer/runbook, and a full five-routine rehearsal**.
 
 ## License
 

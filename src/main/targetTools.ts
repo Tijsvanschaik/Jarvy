@@ -20,6 +20,14 @@ export type TargetToolDependencies = {
   notes: NotesStore;
   generateImage: (args: { prompt: string; size?: string }, signal: AbortSignal) => Promise<AidenToolResult>;
   searchWeb: (args: { query: string; numResults?: number }, signal: AbortSignal) => Promise<AidenToolResult>;
+  cameraVision?: {
+    enabled: boolean;
+    look: (frames: 1 | 2 | 3, signal: AbortSignal) => Promise<string>;
+  };
+  recap?: {
+    enabled: boolean;
+    start: () => { started: boolean; alreadyRunning?: true };
+  };
   onBoardPin?: (state: ReturnType<BoardStore["snapshot"]>) => void;
   onNoteAdded?: (note: Awaited<ReturnType<NotesStore["append"]>>) => void;
 };
@@ -125,19 +133,26 @@ export function createTargetToolHost(deps: TargetToolDependencies): ToolHost {
     },
     {
       name: "kijk_mee",
-      exposed: false,
-      args: z.object({}).strict(),
-      parameters: objectSchema({}),
-      description: "Gereseveerde webcamtool voor de volgende milestone.",
-      handler: () => toolError("DISABLED", "Webcam vision is not implemented."),
+      exposed: deps.cameraVision?.enabled === true,
+      args: z
+        .object({ frames: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional() })
+        .strict(),
+      parameters: objectSchema({ frames: { type: "integer", enum: [1, 2, 3] } }),
+      description:
+        "Kijk uitsluitend op dit expliciete moment via de webcam; de camera gaat daarna direct uit. Gebruik in routine 4 voor een feitelijke observatie en verbind die in 1–2 zinnen met het transcript.",
+      handler: async ({ frames = 1 }, context) => ({
+        ok: true,
+        beschrijving: await deps.cameraVision!.look(frames, context.signal),
+      }),
     },
     {
       name: "start_recap",
-      exposed: false,
+      exposed: deps.recap?.enabled === true,
       args: z.object({}).strict(),
       parameters: objectSchema({}),
-      description: "Gereserveerde recaptool voor de volgende milestone.",
-      handler: () => toolError("DISABLED", "Recap is not implemented."),
+      description:
+        "Start de asynchrone recap uitsluitend in routine 5, nadat Aiden heeft aangekondigd dat hij kort gaat nadenken. Wacht niet op het deck; voortgang en slides verschijnen vanzelf.",
+      handler: () => ({ ok: true, ...deps.recap!.start() }),
     },
   ];
   return new ToolHost(definitions);

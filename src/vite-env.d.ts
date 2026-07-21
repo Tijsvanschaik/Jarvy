@@ -12,10 +12,13 @@ import type {
   SessionClosePayload,
   SessionPhasePayload,
   BoardState,
+  CameraCaptureRequest,
+  CameraCaptureResponse,
+  DeckShowEvent,
   NoteAddedEvent,
   TranscriptEntryEvent,
 } from "./shared/ipc";
-import type { AidenToolCall, AidenToolResult, AidenToolSpec } from "./shared/types";
+import type { AidenToolCall, AidenToolResult, AidenToolSpec, RecapDeck } from "./shared/types";
 
 declare global {
   interface Window {
@@ -30,7 +33,12 @@ declare global {
       onSessionHardClose: (listener: () => void) => () => void;
       executeTool: (toolCall: AidenToolCall) => Promise<AidenToolResult>;
       getToolSpecs: () => Promise<AidenToolSpec[]>;
-      getFeatures: () => Promise<{ computerUse: boolean }>;
+      getFeatures: () => Promise<{
+        computerUse: boolean;
+        cameraVision: boolean;
+        recap: boolean;
+        directRealtimeVision: false;
+      }>;
       getOpsState: () => Promise<OpsStateEvent>;
       setOpsBlock: (payload: OpsSetBlockPayload) => Promise<OpsStateEvent>;
       hardCloseSession: (payload: OpsHardClosePayload) => Promise<OpsStateEvent>;
@@ -39,6 +47,10 @@ declare global {
       getBoardState: () => Promise<BoardState>;
       onBoardPin: (listener: (state: BoardState) => void) => () => void;
       onNoteAdded: (listener: (note: NoteAddedEvent) => void) => () => void;
+      onCameraCaptureRequest: (listener: (request: CameraCaptureRequest) => void) => () => void;
+      respondCameraCapture: (response: CameraCaptureResponse) => void;
+      onDeckShow: (listener: (event: DeckShowEvent) => void) => () => void;
+      getRecapDeck: () => Promise<RecapDeck | null>;
       createRealtimeToken: () => Promise<{ value: string; expiresAt: number | null }>;
     };
   }

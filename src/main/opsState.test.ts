@@ -21,12 +21,14 @@ describe("operational state", () => {
     aggregator.setCapture({ capture: "capturing", vadSpeech: true, level: 0.4 });
     aggregator.setQueue({ depth: 2, active: 1, oldestPendingTs: 500 });
     aggregator.setContext({ totalTokens: 10, sections: [], warnings: [] });
+    aggregator.setRecap({ phase: "mapping", completed: 1, total: 2, cacheUsed: false });
     now = 6_000;
     const state = aggregator.snapshot();
     expect(state.transcript).toHaveLength(15);
     expect(state.session.durationMs).toBe(5_000);
     expect(state.session.inactivityRemainingMs).toBe(15_000);
     expect(state.block).toBe("2-verdieping");
+    expect(state.recap).toEqual({ phase: "mapping", completed: 1, total: 2, cacheUsed: false });
 
     const close = vi.fn(() => { active = false; });
     const notify = vi.fn();

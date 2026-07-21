@@ -5,6 +5,7 @@ import { AidenFace } from "./components/AidenFace";
 import { ActivationController, type ActivationCloseReason } from "./main/activationController";
 import { newEntry, AidenRealtimeClient, type MouthShape, type RealtimeTranscriptEntry, type AidenConnectionState, type AidenMood } from "./lib/realtime";
 import { MicHub, type MicHubState, type RealtimeMicLease } from "./renderer/audio/micHub";
+import { installCameraBridge } from "./renderer/camera/cameraBridge";
 import type { OpsStateEvent } from "./shared/ipc";
 import type { AidenArtifact } from "./shared/types";
 
@@ -60,6 +61,15 @@ export default function App() {
       setArtifact({ title: "Signaalbord", kind: "signalBoard", content: JSON.stringify(board) });
       setArtifactVisible(true);
     });
+    const unsubscribeCamera = installCameraBridge(window.aiden);
+    const unsubscribeDeck = window.aiden.onDeckShow(({ deck }) => {
+      setArtifact({ title: "Aiden recap", kind: "recapDeck", content: JSON.stringify(deck), fullscreen: true });
+      setArtifactVisible(true);
+      setArtifactFullscreen(true);
+    });
+    void window.aiden.getRecapDeck().then((deck) => {
+      if (deck) setArtifact({ title: "Aiden recap", kind: "recapDeck", content: JSON.stringify(deck), fullscreen: true });
+    });
     void window.aiden.getBoardState().then((board) => {
       if (board.pins.length) setArtifact({ title: "Signaalbord", kind: "signalBoard", content: JSON.stringify(board) });
     });
@@ -80,6 +90,8 @@ export default function App() {
       unsubscribeHardClose();
       unsubscribeOps();
       unsubscribeBoard();
+      unsubscribeCamera();
+      unsubscribeDeck();
       unsubscribeTranscript();
       clientRef.current?.disconnect();
       realtimeMicLeaseRef.current?.release();

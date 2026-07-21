@@ -1,6 +1,6 @@
 import type { ContextSectionUsage } from "./contextBuilder";
 import type { QueueOpsState } from "./transcriptionQueue";
-import type { CaptureState, OpsStateEvent, TranscriptEntryEvent } from "../shared/ipc";
+import type { CaptureState, OpsStateEvent, RecapProgress, TranscriptEntryEvent } from "../shared/ipc";
 
 export type OpsStateSources = {
   block: () => string;
@@ -20,6 +20,7 @@ export class OpsStateAggregator {
   private capture: CaptureState = { capture: "stopped", vadSpeech: false, level: 0 };
   private queue: QueueOpsState = { depth: 0, active: 0 };
   private context: ContextOps | undefined;
+  private recap: RecapProgress = { phase: "idle", completed: 0, total: 0, cacheUsed: false };
   private phase: "idle" | "open" | "listening" | "speaking" = "idle";
   private openedAt: number | undefined;
   private lastActivityAt: number | undefined;
@@ -40,6 +41,10 @@ export class OpsStateAggregator {
 
   setContext(context: ContextOps): void {
     this.context = context;
+  }
+
+  setRecap(recap: RecapProgress): void {
+    this.recap = recap;
   }
 
   setSession(active: boolean, phase: "open" | "listening" | "speaking" = "open"): void {
@@ -90,6 +95,7 @@ export class OpsStateAggregator {
           }
         : {}),
       notesCount: this.sources.notesCount(),
+      recap: this.recap,
       warnings: this.sources.warnings(),
     };
   }

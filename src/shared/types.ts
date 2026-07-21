@@ -51,9 +51,22 @@ export type BoardPin = {
 
 export type RecapDeck = {
   id: string;
-  title: string;
-  slides: Array<{ title: string; body: string; visualPrompt?: string }>;
+  slides: Array<{
+    id: string;
+    soort: "blok" | "deelnemer" | "slot";
+    titel: string;
+    bullets: string[];
+    beeldPrompt?: string;
+    beeldPad?: string;
+  }>;
   createdAt: string;
+};
+
+export type CameraFrame = {
+  mediaType: "image/jpeg";
+  data: string;
+  width: number;
+  height: number;
 };
 
 export type AidenArtifact = {
@@ -68,6 +81,7 @@ export type AidenArtifact = {
     | "image"
     | "imageLoading"
     | "signalBoard"
+    | "recapDeck"
     | "progress";
   content: string;
   language?: string;

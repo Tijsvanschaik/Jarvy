@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import mermaid from "mermaid";
 import type { AidenArtifact, BoardPin, Signaal } from "../shared/types";
+import { parseRecapDeck, RecapDeck } from "./RecapDeck";
 
 type ArtifactPanelProps = {
   artifact: AidenArtifact | null;
@@ -172,6 +173,11 @@ function renderArtifact(artifact: AidenArtifact, mermaidState: MermaidState) {
 
   if (artifact.kind === "signalBoard") {
     return <SignalBoard content={artifact.content} />;
+  }
+
+  if (artifact.kind === "recapDeck") {
+    const deck = parseRecapDeck(artifact.content);
+    return deck ? <RecapDeck deck={deck} /> : <pre className="text-artifact">{artifact.content}</pre>;
   }
 
   if (artifact.kind === "code") {

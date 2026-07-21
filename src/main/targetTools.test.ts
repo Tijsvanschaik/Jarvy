@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createTargetToolHost } from "./targetTools";
 
 describe("target Aiden registry", () => {
@@ -22,5 +22,26 @@ describe("target Aiden registry", () => {
       ok: false,
       validIndex: [{ id: "demo-een" }],
     });
+  });
+
+  it("feature-gates webcam and recap while keeping one registry", async () => {
+    const look = vi.fn(async () => "Een flipover met drie leesbare woorden.");
+    const start = vi.fn(() => ({ started: true }));
+    const host = createTargetToolHost({
+      signals: { compactIndex: () => [], find: async () => undefined } as never,
+      board: {} as never,
+      notes: {} as never,
+      generateImage: async () => ({ ok: true }),
+      searchWeb: async () => ({ ok: true }),
+      cameraVision: { enabled: true, look },
+      recap: { enabled: true, start },
+    });
+    expect(host.specs().map((spec) => spec.name)).toEqual([
+      "zoek_signaal", "toon_op_bord", "maak_notitie", "genereer_beeld", "zoek_web", "kijk_mee", "start_recap",
+    ]);
+    expect(await host.invoke("kijk_mee", { frames: 3 })).toMatchObject({ ok: true, beschrijving: expect.any(String) });
+    expect(look).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+    expect(await host.invoke("start_recap", {})).toMatchObject({ ok: true, started: true });
+    expect(start).toHaveBeenCalledOnce();
   });
 });

@@ -53,6 +53,8 @@ export function OperatorPanel() {
         <Metric label="Duration" value={formatDuration(state.session.durationMs)} />
         <Metric label="Inactivity" value={formatDuration(state.session.inactivityRemainingMs)} />
         <Metric label="Notes" value={String(state.notesCount)} />
+        <Metric label="Recap" value={`${state.recap.phase} · ${state.recap.completed}/${state.recap.total}`} />
+        <Metric label="Recap cache" value={state.recap.cacheUsed ? "reused" : "fresh"} />
       </section>
 
       <section className="operator-block">
@@ -104,8 +106,9 @@ export function OperatorPanel() {
           <ul className="operator-warnings">
             {state.queue.lastError ? <li>{state.queue.lastError}</li> : null}
             {state.capture.error ? <li>{state.capture.error}</li> : null}
+            {state.recap.lastError ? <li>{state.recap.lastError}</li> : null}
             {warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
-            {!state.queue.lastError && !state.capture.error && !warnings.length ? <li className="muted">None</li> : null}
+            {!state.queue.lastError && !state.capture.error && !state.recap.lastError && !warnings.length ? <li className="muted">None</li> : null}
           </ul>
         </section>
       </div>

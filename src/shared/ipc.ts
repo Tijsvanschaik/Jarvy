@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { boardPinSchema, boardStateSchema, oogstNotitieSchema } from "./schemas";
+import { boardPinSchema, boardStateSchema, oogstNotitieSchema, recapDeckSchema } from "./schemas";
 
 export const IPC_CHANNELS = {
   sessionActivate: "session:activate",
@@ -20,6 +20,10 @@ export const IPC_CHANNELS = {
   boardState: "board:state",
   noteAdded: "note:added",
   featuresGet: "features:get",
+  cameraCaptureRequest: "camera:captureRequest",
+  cameraCaptureResponse: "camera:captureResponse",
+  deckShow: "deck:show",
+  deckState: "deck:state",
 } as const;
 
 export const contextSectionUsageSchema = z.object({
@@ -98,6 +102,53 @@ export const toolResultEventSchema = z.object({
   result: z.record(z.string(), z.unknown()),
 });
 
+export const cameraFrameSchema = z.object({
+  mediaType: z.literal("image/jpeg"),
+  data: z.string().min(1).max(8 * 1024 * 1024),
+  width: z.number().int().positive().max(1024),
+  height: z.number().int().positive(),
+});
+
+export const cameraCaptureRequestSchema = z
+  .object({
+    correlationId: z.string().uuid(),
+    frames: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    cameraId: z.string().min(1).optional(),
+    timeoutMs: z.number().int().min(1_000).max(30_000),
+  })
+  .strict();
+
+export const cameraCaptureResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      correlationId: z.string().uuid(),
+      ok: z.literal(true),
+      frames: z.array(cameraFrameSchema).min(1).max(3),
+    })
+    .strict(),
+  z
+    .object({
+      correlationId: z.string().uuid(),
+      ok: z.literal(false),
+      code: z.enum(["DENIED", "NOT_FOUND", "BUSY", "TIMEOUT", "CAPTURE_FAILED"]),
+      error: z.string().min(1),
+    })
+    .strict(),
+]);
+
+export const recapProgressSchema = z.object({
+  phase: z.enum(["idle", "mapping", "reducing", "ready", "images", "error"]),
+  completed: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  cacheUsed: z.boolean(),
+  lastError: z.string().optional(),
+});
+
+export const deckShowEventSchema = z.object({
+  deck: recapDeckSchema,
+  progressive: z.boolean(),
+});
+
 export const opsStateEventSchema = z.object({
   block: z.string().min(1),
   session: z.object({
@@ -121,6 +172,7 @@ export const opsStateEventSchema = z.object({
     warnings: z.array(z.string()),
   }).optional(),
   notesCount: z.number().int().nonnegative(),
+  recap: recapProgressSchema,
   warnings: z.array(z.string()),
 });
 
@@ -142,6 +194,11 @@ export type CaptureState = z.infer<typeof captureStateSchema>;
 export type TranscriptEntryEvent = z.infer<typeof transcriptEntryEventSchema>;
 export type ToolCallPayload = z.infer<typeof toolCallPayloadSchema>;
 export type ToolResultEvent = z.infer<typeof toolResultEventSchema>;
+export type CameraFramePayload = z.infer<typeof cameraFrameSchema>;
+export type CameraCaptureRequest = z.infer<typeof cameraCaptureRequestSchema>;
+export type CameraCaptureResponse = z.infer<typeof cameraCaptureResponseSchema>;
+export type RecapProgress = z.infer<typeof recapProgressSchema>;
+export type DeckShowEvent = z.infer<typeof deckShowEventSchema>;
 export type OpsStateEvent = z.infer<typeof opsStateEventSchema>;
 export type OpsSetBlockPayload = z.infer<typeof opsSetBlockPayloadSchema>;
 export type OpsHardClosePayload = z.infer<typeof opsHardClosePayloadSchema>;
