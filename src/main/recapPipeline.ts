@@ -83,16 +83,22 @@ export class RecapPipeline {
 
     let imageCount = 0;
     let lastImageError: string | undefined;
+    let deckUpdate = Promise.resolve();
     this.progress("images", imageCount, targets.length, false);
     await mapLimit(targets, Math.min(4, Math.max(1, this.imageConcurrency)), async (target) => {
       try {
         const imagePath = await this.imageProvider!.generate(target.beeldPrompt!, target.id, this.store.imagesDir, signal);
-        deck = {
-          ...deck,
-          slides: deck.slides.map((slide) => (slide.id === target.id ? { ...slide, beeldPad: imagePath } : slide)),
-        };
-        await this.store.save(cacheKey, deck);
-        this.callbacks.onDeck?.(deck, true);
+        // Image generation stays parallel, but deck persistence is serialized:
+        // concurrent atomic writes must not overwrite or rename the same temp file.
+        deckUpdate = deckUpdate.then(async () => {
+          deck = {
+            ...deck,
+            slides: deck.slides.map((slide) => (slide.id === target.id ? { ...slide, beeldPad: imagePath } : slide)),
+          };
+          await this.store.save(cacheKey, deck);
+          this.callbacks.onDeck?.(deck, true);
+        });
+        await deckUpdate;
       } catch (error) {
         lastImageError = `Beeld voor '${target.titel}' is overgeslagen: ${message(error)}`;
         this.callbacks.onWarning?.(lastImageError);

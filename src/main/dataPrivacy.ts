@@ -91,24 +91,24 @@ export async function cleanupSessions(options: {
     const filePath = path.join(transcriptDir, file);
     const entries = await readJsonLines(filePath, transcriptEntrySchema);
     for (const entry of entries) if (entry.chunkFile) audio.add(safeDataPath(data, entry.chunkFile));
-    affected.push(path.relative(data, filePath));
+    affected.push(relativeDataPath(data, filePath));
   }
-  for (const filePath of audio) affected.push(path.relative(data, filePath));
+  for (const filePath of audio) affected.push(relativeDataPath(data, filePath));
 
   const notesPath = path.join(data, "oogst", "notities.jsonl");
   const notes = await readJsonLines(notesPath, oogstNotitieSchema);
   const keptNotes = notes.filter((note) => !matches(note.timestamp.slice(0, 10)));
-  if (keptNotes.length !== notes.length) affected.push(path.relative(data, notesPath));
+  if (keptNotes.length !== notes.length) affected.push(relativeDataPath(data, notesPath));
 
   const summariesPath = path.join(data, "summaries.json");
   const summaries = z.array(z.object({ createdAt: z.string() }).passthrough()).parse(await readJson(summariesPath, []));
   const keptSummaries = summaries.filter((item) => !matches(item.createdAt.slice(0, 10)));
-  if (keptSummaries.length !== summaries.length) affected.push(path.relative(data, summariesPath));
+  if (keptSummaries.length !== summaries.length) affected.push(relativeDataPath(data, summariesPath));
 
   const boardPath = path.join(data, "signalen", "board-state.json");
   const board = boardStateSchema.parse(await readJson(boardPath, { pins: [] }));
   const keptPins = board.pins.filter((pin) => !matches(pin.pinnedAt.slice(0, 10)));
-  if (keptPins.length !== board.pins.length) affected.push(path.relative(data, boardPath));
+  if (keptPins.length !== board.pins.length) affected.push(relativeDataPath(data, boardPath));
 
   const dryRun = !options.confirm;
   if (!dryRun) {
@@ -145,6 +145,10 @@ function safeDataPath(dataDir: string, relative: string): string {
   const resolved = path.resolve(dataDir, relative);
   if (!isInside(resolved, dataDir)) throw new Error(`Unsafe runtime path '${relative}'.`);
   return resolved;
+}
+
+function relativeDataPath(dataDir: string, filePath: string): string {
+  return path.relative(dataDir, filePath).split(path.sep).join("/");
 }
 
 function isInside(candidate: string, parent: string): boolean {

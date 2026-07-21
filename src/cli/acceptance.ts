@@ -13,7 +13,10 @@ async function main(): Promise<void> {
   const failures: string[] = [];
   for (const name of PROMPT_FILES) {
     const content = await fs.readFile(path.join(root, "prompts", name), "utf8");
-    const actual = crypto.createHash("sha256").update(content).digest("hex");
+    const actual = crypto
+      .createHash("sha256")
+      .update(content.replace(/\r\n/g, "\n"))
+      .digest("hex");
     if (manifest.templates[name]?.sha256 !== actual) failures.push(`${name} hash does not match manifest`);
   }
   const demo = await fs.readFile(path.join(root, "prompts", "demo-modi.md"), "utf8");

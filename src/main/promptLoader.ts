@@ -138,5 +138,8 @@ export class PromptLoader {
 }
 
 function hash(value: Buffer): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
+  // Git may check text files out with CRLF on Windows. Prompt identity should
+  // reflect content rather than the platform-specific line ending.
+  const normalized = value.toString("utf8").replace(/\r\n/g, "\n");
+  return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
 }
