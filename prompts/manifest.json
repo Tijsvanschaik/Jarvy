@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "templates": {
+    "persona.md": {
+      "sha256": "f507d7471c745aea78ccac3407738578fe2fa3d260aa34474750266543e8ca4a",
+      "previousSha256": ["6161c1f23e0371cfef25c419918bc6ab2c102a36aac9629b5aba4e3243a59c00"]
+    },
+    "gedragsregels.md": {
+      "sha256": "7ffe70d4ccda3a5d63621ac728972d29289879bdd511c57f17394c5d3dd1ef30",
+      "previousSha256": ["44565f4b5c38048bc1ea2d19a77b4dc03a6127a4a46639933591307d3bfdbb2b"]
+    },
+    "demo-modi.md": {
+      "sha256": "dd12a7f816e789debfa08bd66beda7c01eda3fa32cebeaa3dc6bb5acf15f0125",
+      "previousSha256": [
+        "365392c08d25af3f06d31560490c8f69a88b4972cbdddabd8b917c420ec59d63",
+        "26b384ef80e83d2b2d3351e4dd179ac883b277b415b60288f8d7589ee602018b"
+      ]
+    },
+    "sessiebrief.md": {
+      "sha256": "e77dbbbb7ba0ff748f70e4adaf8f853c738b011047e188aca0677d5a5983a3af",
+      "previousSha256": ["6718f89063098299d1955b821ffafdda24c5ae65767cf25c90c686eea12ddd9c"]
+    }
+  }
+}
