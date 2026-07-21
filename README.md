@@ -1,6 +1,6 @@
 # Ricky
 
-Ricky is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, a visual artifact panel, image generation, web search, notes, and records. Development is Windows-first; the later production target is macOS.
+Ricky is a local Electron desktop participant with always-on room transcription, activation-only realtime voice, a visual signal board, image generation, web search, structured oogst notes, and a separate operator console. Development is Windows-first; macOS remains compatible.
 
 It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 
@@ -8,10 +8,10 @@ It is built with Electron, React, Vite, TypeScript, and the OpenAI Realtime API.
 
 - Realtime speech-to-speech conversation with OpenAI Realtime.
 - Animated companion face with listening, thinking, speaking, and working states.
-- Artifact panel for markdown, menus, notes, Mermaid diagrams, generated images, records, and progress.
-- YouTube thumbnail board with persistent numbered generations and image edits.
+- Artifact panel with a persistent domain-based signal board.
+- Separate operator window with transcript, microphone/VAD, queue, activation, context-budget, block, and warning status.
 - Optional Exa-powered web search.
-- Local notes and records stored at runtime under `data/`.
+- Append-only structured notes stored at runtime under `data/oogst/notities.jsonl`.
 - Global `F9` activation toggle (configurable with `RICKY_ACTIVATION_SHORTCUT`) plus the same lifecycle from the power button.
 - Explicit-consent shared microphone capture with local PCM/VAD chunking, persistent transcription queue, and daily JSONL transcripts.
 - Computer-use code is retained but its UI and Realtime tools are disabled by default.
@@ -49,6 +49,36 @@ Press `F9` or click the power button. That explicit action starts the shared roo
 
 A second toggle closes the peer connection, data channel, and cloned Realtime track without stopping ambient room capture. A resettable 20-second inactivity timer does the same. Ricky never opens Realtime without explicit activation and has no wake word.
 
+## Operator window
+
+Press `Ctrl+Shift+O` on Windows/Linux or `Cmd+Shift+O` on macOS to show or hide the separate operator window. Override this with `RICKY_OPERATOR_SHORTCUT`. In development it opens by default. The window uses the same isolated typed preload bridge as the main window; it never reads runtime files directly.
+
+The operator can change the current block and issue an emergency hard close. Status snapshots are aggregated in main and broadcast at no more than 2 Hz. No raw audio or API keys are included.
+
+## Signal library and board
+
+The tracked, explicitly non-authoritative sample library is `assets/signalen/bibliotheek.sample.json`. On first run it is copied to the editable ignored file `data/signalen/bibliotheek.json`. Cards are validated on startup and tool lookup with this exact shape:
+
+`id`, `titel`, `laag` (`1|2|3`), `domein` (`zorg|mobiliteit|sociaal|energie|algemeen`), `type` (`hard|zacht`), `kernfeit`, `bron`, `jaar`, `beleidsvraag`, `uitlegKort`, and optional `afbeelding`.
+
+IDs must be lowercase slugs and unique. Invalid libraries fail validation; duplicate IDs are skipped with an operator warning. The complete compact index is generated dynamically in the `zoek_signaal` Realtime tool description.
+
+Pins are atomically persisted to `data/signalen/board-state.json` and restored after restart. The board stores signal snapshots or local image paths, never base64 image blobs. Tool calls update the main artifact panel quietly.
+
+## Oogst notes
+
+`maak_notitie` appends crash-safely to `data/oogst/notities.jsonl`. Main assigns the UUID, ISO timestamp, and current ConfigStore block. Corrupt lines are skipped with an operator warning. Valid notes feed the bounded ContextBuilder oogst section on the next activation.
+
+## Demo routine 2 rehearsal
+
+1. Activate Ricky with `F9`.
+2. Ask: “Laat het laag-1 demosignaal voor routine 2 zien.”
+3. Ricky deterministically calls `zoek_signaal` with `demo-laag-1-buurtcheck`.
+4. Ask Ricky to pin it, or explicitly request `toon_op_bord` with domein `sociaal`.
+5. Confirm the card appears in the non-modal signal board and remains after restart.
+
+Prompt and tool descriptions require local `zoek_signaal` before `zoek_web` for example requests. Sample cards clearly state that they are not authoritative claims.
+
 ## Room transcription
 
 Room capture is mono 16 kHz PCM internally and writes PCM16 WAV chunks under `data/audio/chunks/` before queueing any API request. The explicit thresholds are 300 ms pre-roll, 700 ms closing silence after a minimum 5-second chunk, 30-second hard cap, and a minimum one second of detected speech. Ricky output pauses ambient chunking and capture resumes 500 ms after playback.
@@ -70,13 +100,7 @@ On startup, missing files are copied to ignored runtime storage at `data/prompts
 
 ## Feature flags
 
-Computer use defaults to off. To expose its mode control and tools explicitly:
-
-```bash
-RICKY_ENABLE_COMPUTER_USE=true
-```
-
-When disabled, Ricky does not advertise or execute computer-control tools and does not request Accessibility or Screen Recording permissions.
+Computer-use implementation is retained only as transitional code and defaults to off. The active ToolHost exposes only `zoek_signaal`, `toon_op_bord`, `maak_notitie`, `genereer_beeld`, and `zoek_web`. Computer-use and old thumbnail tools are not advertised or executable through Realtime, and no Accessibility or Screen Recording flow is started. `kijk_mee` and `start_recap` exist only as disabled internal stubs for the next milestone.
 
 ## Development
 
@@ -96,11 +120,11 @@ npm run build:electron
 npm start
 ```
 
-The Electron build bundles the typed preload and modular main foundations with esbuild. `electron/main.cjs` remains a transitional adapter around the existing tool implementation; new session, prompt, context, configuration, and validation code lives under `src/main/`.
+The Electron build bundles the typed preload and modular main foundations with esbuild. `electron/main.cjs` remains a transitional adapter containing reusable legacy image helpers, but active Realtime tool specs and invocation come only from the typed registry under `src/main/`.
 
 ## Runtime Data
 
-The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, notes, records, generated images, and thumbnail-board state. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
+The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, oogst notes, the signal library/board state, and generated images. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
 
 Do not commit:
 
@@ -114,7 +138,7 @@ Do not commit:
 - API keys are loaded only from local environment files.
 - `.env.local` and all `.env.*` files are ignored except `.env.example`.
 - Generated images and local database files are ignored.
-- Computer use is an opt-in development feature and risky actions still require explicit confirmation.
+- Computer-use helpers are inactive transitional code and are absent from active tool specs.
 
 Before publishing a fork, run:
 
@@ -129,7 +153,7 @@ Then verify that no local secrets or runtime data are staged.
 
 ## Next milestone
 
-The exact next milestone is: **full operator BrowserWindow + signal board/tool registry**.
+The exact next milestone is: **webcam vision + recap map-reduce + routines 4/5**.
 
 ## License
 

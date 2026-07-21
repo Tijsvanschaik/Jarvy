@@ -2,6 +2,7 @@ export type RickyConfig = {
   realtimeModel: string;
   realtimeVoice: string;
   activationShortcut: string;
+  operatorShortcut: string;
   inactivityMs: number;
   transcriptionModel: string;
   transcriptionFallbackModel: string;
@@ -22,6 +23,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RickyConfig {
     realtimeModel: env.RICKY_REALTIME_MODEL || "gpt-realtime-2",
     realtimeVoice: env.RICKY_REALTIME_VOICE || "cedar",
     activationShortcut: env.RICKY_ACTIVATION_SHORTCUT || "F9",
+    operatorShortcut: env.RICKY_OPERATOR_SHORTCUT || "CommandOrControl+Shift+O",
     inactivityMs: 20_000,
     transcriptionModel: env.RICKY_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe",
     transcriptionFallbackModel: env.RICKY_TRANSCRIPTION_FALLBACK_MODEL || "whisper-1",

@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import mermaid from "mermaid";
-import type { RickyArtifact } from "../shared/types";
+import type { BoardPin, RickyArtifact, Signaal } from "../shared/types";
 
 type ArtifactPanelProps = {
   artifact: RickyArtifact | null;
@@ -170,8 +170,8 @@ function renderArtifact(artifact: RickyArtifact, mermaidState: MermaidState) {
     );
   }
 
-  if (artifact.kind === "thumbnailBoard") {
-    return <ThumbnailBoard content={artifact.content} />;
+  if (artifact.kind === "signalBoard") {
+    return <SignalBoard content={artifact.content} />;
   }
 
   if (artifact.kind === "code") {
@@ -198,6 +198,61 @@ function renderArtifact(artifact: RickyArtifact, mermaidState: MermaidState) {
   return <pre className="text-artifact">{artifact.content}</pre>;
 }
 
+const boardDomains: Signaal["domein"][] = ["zorg", "mobiliteit", "sociaal", "energie", "algemeen"];
+
+export function SignalBoard({ content }: { content: string }) {
+  const board = parseSignalBoard(content);
+  if (!board) return <pre className="text-artifact">{content}</pre>;
+  return (
+    <section className="signal-board">
+      {boardDomains.map((domain) => {
+        const pins = board.pins.filter((pin) => pin.domein === domain);
+        return (
+          <section className="signal-column" key={domain}>
+            <header><h3>{domain}</h3><span>{pins.length}</span></header>
+            <div>
+              {pins.map((pin) => <SignalCard pin={pin} key={pin.id} />)}
+              {!pins.length ? <p className="signal-empty">Nog leeg</p> : null}
+            </div>
+          </section>
+        );
+      })}
+    </section>
+  );
+}
+
+function SignalCard({ pin }: { pin: BoardPin }) {
+  if (!pin.signaal) {
+    const src = pin.beeldPad?.startsWith("file://") ? pin.beeldPad : `file://${pin.beeldPad}`;
+    return <article className="signal-card signal-image-card"><img src={src} alt={pin.notitie || "Pinned beeld"} />{pin.notitie ? <p>{pin.notitie}</p> : null}</article>;
+  }
+  const signal = pin.signaal;
+  const image = signal.afbeelding
+    ? signal.afbeelding.startsWith("file://") || signal.afbeelding.startsWith("data:") ? signal.afbeelding : `file://${signal.afbeelding}`
+    : undefined;
+  return (
+    <article className={`signal-card signal-layer-${signal.laag}`}>
+      <div className="signal-card-meta"><span>Laag {signal.laag}</span><b>{signal.type}</b></div>
+      {image ? <img src={image} alt="" /> : null}
+      <h4>{signal.titel}</h4>
+      <p>{signal.kernfeit}</p>
+      <small>{signal.bron} · {signal.jaar}</small>
+      <blockquote>{signal.beleidsvraag}</blockquote>
+      {pin.notitie ? <footer>{pin.notitie}</footer> : null}
+    </article>
+  );
+}
+
+function parseSignalBoard(content: string): { pins: BoardPin[] } | null {
+  try {
+    const value = JSON.parse(content) as { pins?: unknown };
+    return value && Array.isArray(value.pins) ? { pins: value.pins as BoardPin[] } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Transitional legacy renderer retained for reusable image-grid helpers; no active tool emits this artifact.
 function ThumbnailBoard({ content }: { content: string }) {
   const board = parseThumbnailBoard(content);
   if (!board) return <pre className="text-artifact">{content}</pre>;

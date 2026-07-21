@@ -27,9 +27,10 @@ describe("ContextBuilder", () => {
     }));
     const notes = Array.from({ length: 30 }, (_, index) => ({
       id: `n${index}`,
-      text: `note-${index} ${"n".repeat(300)}`,
-      tags: [index % 2 ? "odd" : "even"],
-      createdAt: new Date().toISOString(),
+      tekst: `note-${index} ${"n".repeat(300)}`,
+      type: (index % 2 ? "inzicht" : "vraag") as "inzicht" | "vraag",
+      block: "2-verdieping",
+      timestamp: new Date().toISOString(),
     }));
     const result = await new ContextBuilder(loader, {
       summaries: { list: async () => summaries },

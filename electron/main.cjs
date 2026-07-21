@@ -15,7 +15,8 @@ const dataDir = runtimePaths.dataDir;
 const promptLoader = new runtime.PromptLoader(runtimePaths);
 const configStore = runtime.ConfigStore.inDataDir(dataDir);
 const opsWarnings = [];
-let captureState = { capture: "stopped", vadSpeech: false };
+let transcriptEntries = [];
+let captureState = { capture: "stopped", vadSpeech: false, level: 0 };
 let queueState = { depth: 0, active: 0 };
 const transcriptStore = new runtime.TranscriptStore(path.join(dataDir, "transcript"), (warning) => {
   opsWarnings.push(warning);
@@ -23,7 +24,15 @@ const transcriptStore = new runtime.TranscriptStore(path.join(dataDir, "transcri
   broadcastOpsState();
 });
 const summaryStore = runtime.SummaryStore.inDataDir(dataDir);
-const notesStore = new runtime.NotesStore(path.join(dataDir, "ricky-db.json"));
+const notesStore = runtime.NotesStore.inDataDir(dataDir, configStore, (warning) => {
+  opsWarnings.push(warning);
+  if (opsWarnings.length > 50) opsWarnings.shift();
+});
+const signalStore = runtime.SignalStore.inDataDir(dataDir, process.cwd(), (warning) => {
+  opsWarnings.push(warning);
+  if (opsWarnings.length > 50) opsWarnings.shift();
+});
+const boardStore = runtime.BoardStore.inDataDir(dataDir, signalStore);
 const contextBuilder = new runtime.ContextBuilder(promptLoader, {
   summaries: summaryStore,
   transcript: transcriptStore,
@@ -48,6 +57,7 @@ const transcriptionQueue = new runtime.TranscriptionQueue({
   vocabulary: config.transcriptionVocabulary,
   onState: (state) => {
     queueState = state;
+    opsAggregator.setQueue(state);
     broadcastOpsState();
   },
   onTranscript: broadcastTranscript,
@@ -62,8 +72,37 @@ const execFileAsync = promisify(execFile);
 const dbPath = path.join(dataDir, "ricky-db.json");
 let currentMode = "display";
 let mainWindow = null;
+let operatorWindow = null;
 let normalWindowBounds = null;
 let dbWriteQueue = Promise.resolve();
+let opsTick = null;
+
+const opsAggregator = new runtime.OpsStateAggregator(
+  {
+    block: () => configStore.currentBlock,
+    active: () => sessionOrchestrator.isActive,
+    notesCount: () => notesStore.count,
+    transcript: () => transcriptEntries,
+    warnings: () => [...opsWarnings, ...signalStore.warnings],
+  },
+  config.inactivityMs,
+);
+const opsBroadcaster = new runtime.ThrottledBroadcaster(() => {
+  const state = opsAggregator.snapshot();
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.opsState, state);
+  }
+});
+
+const toolHost = runtime.createTargetToolHost({
+  signals: signalStore,
+  board: boardStore,
+  notes: notesStore,
+  generateImage: (args, signal) => generateImage(args, signal),
+  searchWeb: (args, signal) => webSearch(args, signal),
+  onBoardPin: broadcastBoard,
+  onNoteAdded: broadcastNote,
+});
 
 const RICKY_INSTRUCTIONS = `# Role and Objective
 You are Ricky, Riley's desktop AI operator. You speak through realtime voice and can use local tools.
@@ -567,6 +606,38 @@ async function createWindow() {
   }
 }
 
+async function createOperatorWindow() {
+  if (operatorWindow && !operatorWindow.isDestroyed()) {
+    operatorWindow.show();
+    operatorWindow.focus();
+    return operatorWindow;
+  }
+  const win = new BrowserWindow({
+    width: 1040,
+    height: 760,
+    minWidth: 640,
+    minHeight: 520,
+    title: "Ricky Operator",
+    backgroundColor: "#0a0e11",
+    webPreferences: {
+      preload: path.join(process.cwd(), ".electron-build", "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  operatorWindow = win;
+  win.on("closed", () => {
+    if (operatorWindow === win) operatorWindow = null;
+  });
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devUrl) {
+    await win.loadURL(`${devUrl}/operator.html`);
+  } else {
+    await win.loadFile(path.join(process.cwd(), "dist", "operator.html"));
+  }
+  return win;
+}
+
 function setWindowMode(mode) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -610,30 +681,46 @@ function isComputerTool(name) {
 }
 
 function availableToolSpecs() {
-  return config.features.computerUse ? toolSpecs : toolSpecs.filter((tool) => !isComputerTool(tool.name));
+  return toolHost.specs();
+}
+
+async function freshToolSpecs() {
+  try {
+    await signalStore.reload();
+  } catch (error) {
+    recordOpsWarning(error);
+  }
+  return availableToolSpecs();
 }
 
 function buildOpsState() {
-  return {
-    block: configStore.currentBlock,
-    active: sessionOrchestrator.isActive,
-    capture: captureState,
-    queue: queueState,
-    warnings: [...opsWarnings],
-  };
+  return opsAggregator.snapshot();
 }
 
 function broadcastOpsState() {
-  const state = buildOpsState();
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.opsState, state);
-  }
+  opsBroadcaster.request();
 }
 
 function broadcastTranscript(entry) {
+  transcriptEntries.push(entry);
+  transcriptEntries = transcriptEntries.slice(-200);
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send(runtime.IPC_CHANNELS.transcriptAppended, entry);
   }
+  broadcastOpsState();
+}
+
+function broadcastBoard(state) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(runtime.IPC_CHANNELS.boardPin, state);
+  }
+}
+
+function broadcastNote(note) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(runtime.IPC_CHANNELS.noteAdded, note);
+  }
+  broadcastOpsState();
 }
 
 function recordOpsWarning(error) {
@@ -642,16 +729,27 @@ function recordOpsWarning(error) {
   broadcastOpsState();
 }
 
-ipcMain.handle("tools:list", () => availableToolSpecs());
-ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => config.features);
+ipcMain.handle("tools:list", () => freshToolSpecs());
+ipcMain.handle(runtime.IPC_CHANNELS.featuresGet, () => ({ ...config.features, computerUse: false }));
 ipcMain.handle(runtime.IPC_CHANNELS.sessionActivate, async (_event, payload) => {
-  const db = await readDb();
-  const result = await sessionOrchestrator.activate(payload, availableToolSpecs(), buildThumbnailBoardInstructions(db));
+  const result = await sessionOrchestrator.activate(
+    payload,
+    await freshToolSpecs(),
+    "Bij voorbeeld- en signaalvragen: gebruik altijd eerst zoek_signaal en pas daarna zoek_web als externe actualiteit nodig is. Houd ieder gesproken antwoord bij activatie op maximaal drie zinnen.",
+  );
+  opsAggregator.setContext(result.context);
+  opsAggregator.setSession(true);
   broadcastOpsState();
   return result;
 });
 ipcMain.handle(runtime.IPC_CHANNELS.sessionClose, (_event, payload) => {
   sessionOrchestrator.close(payload);
+  opsAggregator.setSession(false);
+  broadcastOpsState();
+});
+ipcMain.on(runtime.IPC_CHANNELS.sessionPhase, (_event, payload) => {
+  const phase = runtime.sessionPhasePayloadSchema.parse(payload);
+  opsAggregator.activity(phase.state);
   broadcastOpsState();
 });
 ipcMain.on(runtime.IPC_CHANNELS.sessionAssistantSaid, (_event, payload) => {
@@ -675,6 +773,7 @@ ipcMain.on(runtime.IPC_CHANNELS.audioChunk, (_event, payload) => {
 });
 ipcMain.on(runtime.IPC_CHANNELS.audioCaptureState, (_event, payload) => {
   captureState = runtime.captureStateSchema.parse(payload);
+  opsAggregator.setCapture(captureState);
   broadcastOpsState();
 });
 ipcMain.handle(runtime.IPC_CHANNELS.opsState, () => buildOpsState());
@@ -685,19 +784,36 @@ ipcMain.handle(runtime.IPC_CHANNELS.opsSetBlock, async (_event, payload) => {
   void summaryScheduler.notifyBlockChange().catch(recordOpsWarning);
   return buildOpsState();
 });
+ipcMain.handle(runtime.IPC_CHANNELS.opsHardClose, (_event, payload) => {
+  runtime.opsHardClosePayloadSchema.parse(payload);
+  const state = runtime.dispatchHardClose(
+    () => sessionOrchestrator.close({ reason: "window" }),
+    () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(runtime.IPC_CHANNELS.sessionHardCloseRequested);
+      }
+    },
+    opsAggregator,
+  );
+  broadcastOpsState();
+  return state;
+});
+ipcMain.handle(runtime.IPC_CHANNELS.boardState, () => boardStore.snapshot());
 
 // Compatibility for the previous renderer while the monolith is migrated incrementally.
 ipcMain.handle("realtime:create-token", async () => {
-  const db = await readDb();
   const result = await sessionOrchestrator.activate(
     { source: "ui" },
-    availableToolSpecs(),
-    buildThumbnailBoardInstructions(db),
+    await freshToolSpecs(),
+    "Gebruik zoek_signaal vóór zoek_web voor voorbeelden. Antwoord in maximaal drie zinnen.",
   );
+  opsAggregator.setContext(result.context);
+  opsAggregator.setSession(true);
   return result.token;
 });
 
-async function executeTool(_event, toolCall) {
+// Transitional legacy executor retained for reusable image helpers only; it is not exposed to Realtime.
+async function legacyExecuteTool(_event, toolCall) {
   const name = String(toolCall?.name || "");
   const args = asObject(toolCall?.arguments);
 
@@ -941,12 +1057,15 @@ end tell`;
   }
 }
 
-ipcMain.handle("tools:execute", executeTool);
-ipcMain.handle(runtime.IPC_CHANNELS.toolCall, (event, payload) =>
-  executeTool(event, runtime.toolCallPayloadSchema.parse(payload)),
-);
+async function executeTargetTool(_event, payload) {
+  const toolCall = runtime.toolCallPayloadSchema.parse(payload);
+  return toolHost.invoke(toolCall.name, toolCall.arguments);
+}
 
-async function webSearch(args) {
+ipcMain.handle("tools:execute", executeTargetTool);
+ipcMain.handle(runtime.IPC_CHANNELS.toolCall, executeTargetTool);
+
+async function webSearch(args, signal) {
   const exaKey = process.env.EXA_API_KEY;
   if (!exaKey) {
     return {
@@ -968,6 +1087,7 @@ async function webSearch(args) {
       numResults: Math.max(1, Math.min(10, Number(args.numResults || 5))),
       contents: { highlights: true },
     }),
+    signal,
   });
 
   if (!response.ok) {
@@ -1076,7 +1196,7 @@ Here is what you can ask me to do.
 - "Switch to computer use mode and open Notes."`;
 }
 
-async function generateImage(args) {
+async function generateImage(args, signal) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return imageErrorArtifact("OPENAI_API_KEY is missing in .env.local.");
@@ -1094,6 +1214,7 @@ async function generateImage(args) {
       size: String(args.size || "1024x1024"),
       quality: "medium",
     }),
+    signal,
   });
 
   if (!response.ok) {
@@ -1638,10 +1759,16 @@ function fallbackMermaidDiagram(title) {
 }
 
 app.whenReady().then(async () => {
-  await Promise.all([promptLoader.bootstrap(), configStore.load(), transcriptStore.load(), summaryStore.load()]);
+  await Promise.all([promptLoader.bootstrap(), configStore.load(), transcriptStore.load(), summaryStore.load(), signalStore.bootstrap()]);
+  await Promise.all([notesStore.load(), boardStore.load()]);
+  transcriptEntries = await transcriptStore.recent(200);
   await transcriptionQueue.load();
   summaryScheduler.start();
+  opsTick = setInterval(() => {
+    if (sessionOrchestrator.isActive) broadcastOpsState();
+  }, 500);
   await createWindow();
+  if (process.env.VITE_DEV_SERVER_URL) await createOperatorWindow();
   const registered = globalShortcut.register(config.activationShortcut, () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -1651,10 +1778,23 @@ app.whenReady().then(async () => {
   if (!registered) {
     console.warn(`Could not register Ricky activation shortcut: ${config.activationShortcut}`);
   }
+  const operatorRegistered = globalShortcut.register(config.operatorShortcut, () => {
+    if (operatorWindow && !operatorWindow.isDestroyed() && operatorWindow.isVisible()) {
+      operatorWindow.hide();
+    } else {
+      void createOperatorWindow().catch(recordOpsWarning);
+    }
+  });
+  if (!operatorRegistered) {
+    console.warn(`Could not register operator shortcut: ${config.operatorShortcut}`);
+  }
+  broadcastOpsState();
 });
 
 app.on("will-quit", () => {
   summaryScheduler.stop();
+  if (opsTick) clearInterval(opsTick);
+  opsBroadcaster.dispose();
   globalShortcut.unregisterAll();
 });
 
