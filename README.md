@@ -114,7 +114,7 @@ Tracked Dutch defaults live in `prompts/`:
 - `demo-modi.md`
 - `sessiebrief.md`
 
-On startup, missing files are copied to ignored runtime storage at `data/prompts/`. Edit the runtime copies for local sessions; they are read fresh on every activation and are never overwritten by bootstrap.
+On startup, missing files are copied to ignored runtime storage at `data/prompts/`. `prompts/manifest.json` tracks shipped hashes and prior shipped hashes. An untouched prior default upgrades automatically with backup; a locally edited template is retained with an operator warning. Use `npm run prompts -- status`, `review <name>`, or `apply <name>` to inspect/reset explicitly with backup.
 
 ## Feature flags
 
@@ -137,6 +137,9 @@ npm test
 npm run typecheck
 npm run build
 npm run build:electron
+npm run rehearsal
+npm run preflight
+npm run verify
 npm start
 ```
 
@@ -144,7 +147,15 @@ The Electron build bundles the typed preload and modular main foundations with e
 
 ## Runtime Data
 
-The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, oogst notes, the signal library/board state, recap cache/images, and generated images. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git.
+The app creates a repo-local `data/` directory for runtime prompts, audio chunks/queue state, daily transcript JSONL, summaries, oogst notes, the signal library/board state, recap cache/images, and generated images. Repo-local storage is an explicit product requirement and the directory is intentionally ignored by Git. Session export excludes raw audio unless `--include-audio`; cleanup is dry-run unless `--confirm`.
+
+## Operations documentation
+
+- [Windows development](docs/WINDOWS-DEVELOPMENT.md)
+- [macOS transfer](docs/MACOS-TRANSFER.md)
+- [Session-day runbook and privacy checklist](docs/SESSION-DAY-RUNBOOK.md)
+- [Offline/live rehearsal](docs/REHEARSAL.md)
+- [Backup and graceful degradation](docs/BACKUP-PLAN.md)
 
 Do not commit:
 
@@ -171,10 +182,6 @@ git status --short
 ```
 
 Then verify that no local secrets or runtime data are staged.
-
-## Next milestone
-
-The exact next milestone is: **final hardening, replay end-to-end, macOS transfer/runbook, and a full five-routine rehearsal**.
 
 ## License
 

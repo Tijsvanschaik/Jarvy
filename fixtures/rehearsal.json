@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "chunks": [
+    {
+      "block": "1-introductie",
+      "text": "De introductie toont een visueel cv zonder persoonsgegevens."
+    },
+    {
+      "block": "2-laag-1",
+      "text": "Zoek eerst het lokale laag-1 signaal en pin het op het bord."
+    },
+    {
+      "block": "3-laag-2-provisioneel",
+      "text": "Routine drie is een voorlopige laag-2 verkenning en geen gemeentelijk systeem."
+    },
+    {
+      "block": "4-camera",
+      "text": "De camera-observatie wordt expliciet verbonden met het eerdere gesprek."
+    },
+    {
+      "block": "5-recap",
+      "text": "Bewaar alleen evidence-backed oogst en verwijder onbewezen deelnemersclaims."
+    }
+  ],
+  "activations": [
+    { "afterChunk": 0, "source": "script" },
+    { "afterChunk": 3, "source": "script" }
+  ],
+  "visionText": "Een abstracte verbindingslijn op het scherm sluit aan op het eerdere gesprek.",
+  "supportedParticipant": {
+    "name": "Jan",
+    "claim": "We beginnen met een klein, toetsbaar experiment."
+  },
+  "unsupportedParticipant": {
+    "name": "Mia",
+    "claim": "Deze onbewezen claim moet worden verwijderd."
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "name": "rileyjarvis",
+  "name": "aiden-desktop",
   "version": "1.0.0",
   "description": "Aiden (AI-den): a local Electron desktop AI participant powered by OpenAI Realtime.",
   "main": "electron/main.cjs",
@@ -9,7 +9,15 @@
     "build": "npm run typecheck && npm run build:electron && vite build",
     "build:electron": "node scripts/build-electron.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "replay": "node scripts/run-cli.mjs src/cli/replay.ts",
+    "rehearsal": "npm run replay -- --generate-fixture --offline-fixtures fixtures/rehearsal.json",
+    "preflight": "node scripts/run-cli.mjs src/cli/preflight.ts",
+    "prompts": "node scripts/run-cli.mjs src/cli/prompts.ts",
+    "session:export": "node scripts/run-cli.mjs src/cli/privacy.ts export",
+    "session:cleanup": "node scripts/run-cli.mjs src/cli/privacy.ts cleanup",
+    "config:check": "node scripts/run-cli.mjs src/cli/acceptance.ts",
+    "verify": "npm test && npm run typecheck && npm run build:electron && vite build && npm audit --omit=dev --audit-level=high && npm run rehearsal && npm run config:check"
   },
   "keywords": [
     "electron",

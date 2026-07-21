@@ -9,6 +9,10 @@ release/
 !.env.example
 
 data/
+exports/
+rehearsal-output/
+replay-report*.json
+*.wav
 *.log
 .DS_Store
 npm-debug.log*
