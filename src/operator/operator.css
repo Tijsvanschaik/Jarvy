@@ -1,0 +1,27 @@
+:root { color-scheme: dark; font-family: Inter, system-ui, "Segoe UI", sans-serif; color: #ecf2f5; background: #0a0e11; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 640px; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.operator-shell { min-height: 100vh; padding: 24px; background: radial-gradient(circle at top right, #14252a, #0a0e11 42%); }
+.operator-shell > header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.operator-kicker { color: #72d8e8; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+h1 { margin: 4px 0 0; font-size: 30px; text-transform: capitalize; }
+h2 { margin: 20px 0 10px; color: #b9c8ce; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.hard-close { padding: 10px 14px; border: 1px solid #7f3038; border-radius: 8px; color: #ffd9dd; background: #35151a; }
+.operator-metrics { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; margin: 22px 0; }
+.operator-metrics article, .operator-block, .operator-list article, .operator-warnings { border: 1px solid #26353b; border-radius: 9px; background: rgba(15, 23, 27, .86); }
+.operator-metrics article { display: grid; gap: 5px; padding: 12px; }
+.operator-metrics span, small, .muted { color: #7f939b; font-size: 12px; }
+.operator-block { padding: 14px; }
+.operator-block label { display: block; margin-bottom: 8px; color: #91a5ad; font-size: 12px; }
+.operator-block div { display: flex; gap: 8px; }
+.operator-block input { flex: 1; padding: 9px; border: 1px solid #33474f; border-radius: 6px; color: inherit; background: #080d0f; }
+.operator-block button { padding: 8px 14px; border: 0; border-radius: 6px; color: #071013; background: #72d8e8; }
+.operator-columns { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+.operator-list { display: grid; max-height: 440px; gap: 6px; overflow: auto; }
+.operator-list article { padding: 10px 12px; }
+.operator-list p { margin: 5px 0 0; line-height: 1.35; }
+.operator-warnings { min-height: 54px; margin: 0; padding: 12px 12px 12px 30px; color: #ffc2a8; }
+@media (max-width: 800px) { .operator-metrics { grid-template-columns: repeat(2, 1fr); } .operator-columns { grid-template-columns: 1fr; } }

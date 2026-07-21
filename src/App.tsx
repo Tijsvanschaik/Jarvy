@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, PanelRight, Power, Send } from "lucide-react";
+import { BrainCircuit, Expand, History, Keyboard, Mic, MicOff, MonitorCog, Power, Send } from "lucide-react";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { RickyFace } from "./components/RickyFace";
 import { ActivationController, type ActivationCloseReason } from "./main/activationController";
@@ -27,7 +27,7 @@ export default function App() {
   const [status, setStatus] = useState("Click Connect, then talk or type.");
   const [textPrompt, setTextPrompt] = useState("");
   const [computerUseEnabled, setComputerUseEnabled] = useState(false);
-  const [micHubState, setMicHubState] = useState<MicHubState>({ capture: "stopped", vadSpeech: false });
+  const [micHubState, setMicHubState] = useState<MicHubState>({ capture: "stopped", vadSpeech: false, level: 0 });
   const [opsState, setOpsState] = useState<OpsStateEvent | null>(null);
   const clientRef = useRef<RickyRealtimeClient | null>(null);
   const realtimeMicLeaseRef = useRef<RealtimeMicLease | null>(null);
@@ -52,7 +52,17 @@ export default function App() {
       activationSourceRef.current = "shortcut";
       void controllerRef.current?.toggle("shortcut");
     });
+    const unsubscribeHardClose = window.ricky.onSessionHardClose(() => {
+      void controllerRef.current?.close("window");
+    });
     const unsubscribeOps = window.ricky.onOpsState(setOpsState);
+    const unsubscribeBoard = window.ricky.onBoardPin((board) => {
+      setArtifact({ title: "Signaalbord", kind: "signalBoard", content: JSON.stringify(board) });
+      setArtifactVisible(true);
+    });
+    void window.ricky.getBoardState().then((board) => {
+      if (board.pins.length) setArtifact({ title: "Signaalbord", kind: "signalBoard", content: JSON.stringify(board) });
+    });
     const unsubscribeTranscript = window.ricky.onTranscriptAppended((entry) => {
       if (entry.source === "assistant") return;
       setTranscript((items) => [
@@ -67,7 +77,9 @@ export default function App() {
     });
     return () => {
       unsubscribe();
+      unsubscribeHardClose();
       unsubscribeOps();
+      unsubscribeBoard();
       unsubscribeTranscript();
       clientRef.current?.disconnect();
       realtimeMicLeaseRef.current?.release();
@@ -88,6 +100,7 @@ export default function App() {
       // Realtime retains its permission-safe direct microphone fallback.
     }
     const activation = await window.ricky.activateSession({ source });
+    window.ricky.reportSessionPhase({ state: "open" });
     if (!controllerRef.current?.isActive) {
       await window.ricky.closeSession({ reason: source });
       return;
@@ -98,7 +111,12 @@ export default function App() {
         if (state === "error") setShowLog(true);
         if (state !== "connected") setMicMuted(false);
       },
-      onMood: setMood,
+      onMood: (nextMood) => {
+        setMood(nextMood);
+        if (nextMood === "listening" || nextMood === "speaking") {
+          window.ricky.reportSessionPhase({ state: nextMood });
+        }
+      },
       onMouthShape: setMouthShape,
       onTranscript: (entry) => {
         setTranscript((items) => [entry, ...items].slice(0, 80));
@@ -128,7 +146,10 @@ export default function App() {
         setTranscript((items) => [newEntry("system", message), ...items].slice(0, 80));
       },
       onThumbnailReady: playThumbnailReadySound,
-      onActivity: () => controllerRef.current?.activity(),
+      onActivity: () => {
+        controllerRef.current?.activity();
+        window.ricky.reportSessionPhase({ state: "open" });
+      },
       onOutputPlayback: (playing) => micHubRef.current?.setRickyOutputPlaying(playing),
     });
     clientRef.current = client;
@@ -250,6 +271,7 @@ export default function App() {
             <span>VAD: {micHubState.vadSpeech ? "speech" : "quiet"}</span>
             <span>Queue: {opsState?.queue.depth ?? 0}</span>
             <span>Block: {opsState?.block ?? "1-welkom"}</span>
+            <span>Oogst: {opsState?.notesCount ?? 0}</span>
             {opsState?.queue.lastError ? <span className="room-error">{opsState.queue.lastError}</span> : null}
           </div>
 
@@ -319,14 +341,6 @@ export default function App() {
               title="Type to Ricky"
             >
               <Keyboard size={16} />
-            </button>
-            <button
-              className={mode === "display" ? "simple-button active" : "simple-button"}
-              onClick={() => void switchMode("display")}
-              aria-label="Display mode"
-              title="Display mode"
-            >
-              <PanelRight size={16} />
             </button>
             {computerUseEnabled ? (
               <button

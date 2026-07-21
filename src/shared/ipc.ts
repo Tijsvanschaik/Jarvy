@@ -1,10 +1,13 @@
 import { z } from "zod";
+import { boardPinSchema, boardStateSchema, oogstNotitieSchema } from "./schemas";
 
 export const IPC_CHANNELS = {
   sessionActivate: "session:activate",
   sessionClose: "session:close",
   sessionAssistantSaid: "session:assistantSaid",
   sessionToggleRequested: "session:toggleRequested",
+  sessionHardCloseRequested: "session:hardCloseRequested",
+  sessionPhase: "session:phase",
   audioChunk: "audio:chunk",
   audioCaptureState: "audio:captureState",
   transcriptAppended: "transcript:appended",
@@ -12,6 +15,10 @@ export const IPC_CHANNELS = {
   toolResult: "tool:result",
   opsState: "ops:state",
   opsSetBlock: "ops:setBlock",
+  opsHardClose: "ops:hardClose",
+  boardPin: "board:pin",
+  boardState: "board:state",
+  noteAdded: "note:added",
   featuresGet: "features:get",
 } as const;
 
@@ -48,6 +55,10 @@ export const assistantSaidPayloadSchema = z.object({
   at: z.string().min(1),
 });
 
+export const sessionPhasePayloadSchema = z.object({
+  state: z.enum(["open", "listening", "speaking"]),
+});
+
 export const audioChunkPayloadSchema = z
   .object({
     wav: z.custom<ArrayBuffer>(
@@ -62,6 +73,7 @@ export const audioChunkPayloadSchema = z
 export const captureStateSchema = z.object({
   capture: z.enum(["stopped", "starting", "capturing", "muted", "error"]),
   vadSpeech: z.boolean(),
+  level: z.number().min(0).max(1).default(0),
   deviceId: z.string().optional(),
   error: z.string().optional(),
 });
@@ -88,7 +100,13 @@ export const toolResultEventSchema = z.object({
 
 export const opsStateEventSchema = z.object({
   block: z.string().min(1),
-  active: z.boolean(),
+  session: z.object({
+    state: z.enum(["idle", "open", "listening", "speaking"]),
+    active: z.boolean(),
+    openedAt: z.number().nonnegative().optional(),
+    durationMs: z.number().nonnegative(),
+    inactivityRemainingMs: z.number().nonnegative().optional(),
+  }),
   capture: captureStateSchema,
   queue: z.object({
     depth: z.number().int().nonnegative(),
@@ -96,6 +114,13 @@ export const opsStateEventSchema = z.object({
     lastError: z.string().optional(),
     oldestPendingTs: z.number().nonnegative().optional(),
   }),
+  transcript: z.array(transcriptEntryEventSchema).max(15),
+  context: z.object({
+    totalTokens: z.number().int().nonnegative(),
+    sections: z.array(contextSectionUsageSchema),
+    warnings: z.array(z.string()),
+  }).optional(),
+  notesCount: z.number().int().nonnegative(),
   warnings: z.array(z.string()),
 });
 
@@ -103,10 +128,15 @@ export const opsSetBlockPayloadSchema = z.object({
   block: z.string().trim().min(1),
 });
 
+export const opsHardClosePayloadSchema = z.object({
+  reason: z.literal("operator").default("operator"),
+});
+
 export type SessionActivatePayload = z.infer<typeof sessionActivatePayloadSchema>;
 export type SessionActivateResult = z.infer<typeof sessionActivateResultSchema>;
 export type SessionClosePayload = z.infer<typeof sessionClosePayloadSchema>;
 export type AssistantSaidPayload = z.infer<typeof assistantSaidPayloadSchema>;
+export type SessionPhasePayload = z.infer<typeof sessionPhasePayloadSchema>;
 export type AudioChunkPayload = z.infer<typeof audioChunkPayloadSchema>;
 export type CaptureState = z.infer<typeof captureStateSchema>;
 export type TranscriptEntryEvent = z.infer<typeof transcriptEntryEventSchema>;
@@ -114,6 +144,10 @@ export type ToolCallPayload = z.infer<typeof toolCallPayloadSchema>;
 export type ToolResultEvent = z.infer<typeof toolResultEventSchema>;
 export type OpsStateEvent = z.infer<typeof opsStateEventSchema>;
 export type OpsSetBlockPayload = z.infer<typeof opsSetBlockPayloadSchema>;
+export type OpsHardClosePayload = z.infer<typeof opsHardClosePayloadSchema>;
+export type BoardState = z.infer<typeof boardStateSchema>;
+export type BoardPinEvent = z.infer<typeof boardPinSchema>;
+export type NoteAddedEvent = z.infer<typeof oogstNotitieSchema>;
 
 export function parseBoundary<T>(schema: z.ZodType<T>, payload: unknown): T {
   return schema.parse(payload);
