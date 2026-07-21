@@ -110,20 +110,24 @@ function fitLines(lines: string[], budget: number): { body: string; truncated: b
 
 function renderNotes(notes: OogstNotitie[]): { body: string; truncated: boolean } {
   const render = (items: OogstNotitie[]) =>
-    items.map((note) => `- ${note.text}${note.tags?.length ? ` [${note.tags.join(", ")}]` : ""}`).join("\n");
+    items.map(renderNote).join("\n");
   const complete = render(notes);
   if (estimateTokens(complete) <= CONTEXT_BUDGETS.notes) return { body: complete, truncated: false };
 
-  const tagCounts = new Map<string, number>();
+  const typeCounts = new Map<string, number>();
   for (const note of notes) {
-    for (const tag of note.tags || []) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+    typeCounts.set(note.type, (typeCounts.get(note.type) || 0) + 1);
   }
-  const counts = [...tagCounts.entries()]
+  const counts = [...typeCounts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([tag, count]) => `${tag}:${count}`)
+    .map(([type, count]) => `${type}:${count}`)
     .join(", ");
-  const header = `Totaal: ${notes.length}. Tags: ${counts || "geen"}. Laatste notities:`;
+  const header = `Totaal: ${notes.length}. Types: ${counts || "geen"}. Laatste notities:`;
   const latest = notes.slice(-15);
-  const fitted = fitLines(latest.map((note) => `- ${note.text}${note.tags?.length ? ` [${note.tags.join(", ")}]` : ""}`), Math.max(1, CONTEXT_BUDGETS.notes - estimateTokens(`${header}\n`)));
+  const fitted = fitLines(latest.map(renderNote), Math.max(1, CONTEXT_BUDGETS.notes - estimateTokens(`${header}\n`)));
   return { body: `${header}\n${fitted.body}`, truncated: true };
+}
+
+function renderNote(note: OogstNotitie): string {
+  return `- [blok ${note.block}; ${note.type}${note.deelnemer ? `; ${note.deelnemer}` : ""}] ${note.tekst}`;
 }

@@ -344,7 +344,7 @@ export class AidenRealtimeClient {
       }
 
       this.callbacks.onTranscript(newEntry("tool", `Running ${name}`));
-      if (name === "image_generate") {
+      if (name === "genereer_beeld") {
         this.callbacks.onArtifact({
           title: "Generating Image",
           kind: "imageLoading",
@@ -537,8 +537,8 @@ function sanitizeToolResult(result: AidenToolResult): AidenToolResult {
       title: artifact.title,
       kind: artifact.kind,
       content:
-        artifact.kind === "thumbnailBoard"
-          ? "Thumbnail board rendered in the UI. Use the compact board field for exact numbers, selected state, and loading state."
+        artifact.kind === "signalBoard"
+          ? "Signal board rendered in the UI. Use the compact board field for exact pinned references."
           : artifact.kind === "image" || artifact.kind === "imageLoading"
             ? "Image rendered in the UI."
             : artifact.content.length > 1200

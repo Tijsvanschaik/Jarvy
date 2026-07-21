@@ -7,6 +7,7 @@ export type CaptureState = "stopped" | "starting" | "capturing" | "muted" | "err
 export type MicHubState = {
   capture: CaptureState;
   vadSpeech: boolean;
+  level: number;
   deviceId?: string;
   error?: string;
 };
@@ -25,7 +26,8 @@ export class MicHub {
   private startPromise: Promise<void> | null = null;
   private resumeTimer = 0;
   private muted = false;
-  private state: MicHubState = { capture: "stopped", vadSpeech: false };
+  private state: MicHubState = { capture: "stopped", vadSpeech: false, level: 0 };
+  private lastLevelReport = 0;
   private readonly vad = new EnergyVad();
   private readonly chunker = new VadChunker((chunk) => {
     const wav = encodeMonoPcm16Wav(chunk.samples);
@@ -43,7 +45,7 @@ export class MicHub {
   async start(deviceId?: string): Promise<void> {
     if (this.sourceStream) return;
     if (this.startPromise) return this.startPromise;
-    this.setState({ capture: "starting", vadSpeech: false, deviceId });
+    this.setState({ capture: "starting", vadSpeech: false, level: 0, deviceId });
     this.startPromise = this.acquire(deviceId).finally(() => {
       this.startPromise = null;
     });
@@ -92,7 +94,7 @@ export class MicHub {
     this.muted = false;
     this.chunker.reset();
     this.vad.reset();
-    this.setState({ capture: "stopped", vadSpeech: false });
+    this.setState({ capture: "stopped", vadSpeech: false, level: 0 });
   }
 
   async dispose(): Promise<void> {
@@ -132,7 +134,11 @@ export class MicHub {
         if (this.muted || !event.data?.samples) return;
         const samples = resampleMono(event.data.samples, event.data.sampleRate, 16_000);
         const vad = this.vad.process(samples);
-        if (vad.speech !== this.state.vadSpeech) this.setState({ ...this.state, vadSpeech: vad.speech });
+        const now = performance.now();
+        if (vad.speech !== this.state.vadSpeech || now - this.lastLevelReport >= 500) {
+          this.lastLevelReport = now;
+          this.setState({ ...this.state, vadSpeech: vad.speech, level: rmsLevel(samples) });
+        }
         this.chunker.feed(samples, vad.speech);
       };
 
@@ -145,6 +151,7 @@ export class MicHub {
       this.setState({
         capture: "capturing",
         vadSpeech: false,
+        level: 0,
         deviceId: track.getSettings().deviceId || deviceId,
       });
     } catch (error) {
@@ -152,6 +159,7 @@ export class MicHub {
       this.setState({
         capture: "error",
         vadSpeech: false,
+        level: 0,
         deviceId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -170,6 +178,13 @@ export class MicHub {
     this.onState(state);
     window.aiden.reportCaptureState(state);
   }
+}
+
+function rmsLevel(samples: Float32Array): number {
+  if (!samples.length) return 0;
+  let squares = 0;
+  for (const sample of samples) squares += sample * sample;
+  return Math.min(1, Math.sqrt(squares / samples.length) * 5);
 }
 
 export function createRealtimeTrackLease(

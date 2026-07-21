@@ -1,0 +1,38 @@
+[
+  {
+    "id": "demo-laag-1-buurtcheck",
+    "titel": "Demo: buurtcheck als startpunt",
+    "laag": 1,
+    "domein": "sociaal",
+    "type": "zacht",
+    "kernfeit": "Dit is een fictieve demonstratiekaart voor routine 2; het kernfeit is geen onderzoeksclaim.",
+    "bron": "Ricky demo/sample",
+    "jaar": "demo",
+    "beleidsvraag": "Welke lokale observatie willen deelnemers eerst samen toetsen?",
+    "uitlegKort": "Gebruik deze kaart om zoeken, tonen en pinnen deterministisch te oefenen."
+  },
+  {
+    "id": "demo-laag-2-reisvraag",
+    "titel": "Demo: reisvraag in beeld",
+    "laag": 2,
+    "domein": "mobiliteit",
+    "type": "zacht",
+    "kernfeit": "Fictief voorbeeldmateriaal; niet gebruiken als feitelijke onderbouwing.",
+    "bron": "Ricky demo/sample",
+    "jaar": "demo",
+    "beleidsvraag": "Welke reiservaring verdient vervolgonderzoek?",
+    "uitlegKort": "Een tweede voorbeeld voor het testen van domeinkolommen."
+  },
+  {
+    "id": "demo-laag-3-energiekeuze",
+    "titel": "Demo: energiekeuze op systeemniveau",
+    "laag": 3,
+    "domein": "energie",
+    "type": "hard",
+    "kernfeit": "Technische samplekaart zonder gezaghebbende externe claim.",
+    "bron": "Ricky demo/sample",
+    "jaar": "demo",
+    "beleidsvraag": "Welke aannames moeten vóór een systeemkeuze worden gevalideerd?",
+    "uitlegKort": "Toont laag- en type-opmaak zonder echte beleidsclaim."
+  }
+]

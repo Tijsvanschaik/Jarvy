@@ -2,6 +2,7 @@ export type AidenConfig = {
   realtimeModel: string;
   realtimeVoice: string;
   activationShortcut: string;
+  operatorShortcut: string;
   inactivityMs: number;
   transcriptionModel: string;
   transcriptionFallbackModel: string;
@@ -25,6 +26,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AidenConfig {
     realtimeModel: envValue(env, "AIDEN_REALTIME_MODEL", "RICKY_REALTIME_MODEL") || "gpt-realtime-2",
     realtimeVoice: envValue(env, "AIDEN_REALTIME_VOICE", "RICKY_REALTIME_VOICE") || "cedar",
     activationShortcut: envValue(env, "AIDEN_ACTIVATION_SHORTCUT", "RICKY_ACTIVATION_SHORTCUT") || "F9",
+    operatorShortcut:
+      envValue(env, "AIDEN_OPERATOR_SHORTCUT", "RICKY_OPERATOR_SHORTCUT") || "CommandOrControl+Shift+O",
     inactivityMs: 20_000,
     transcriptionModel:
       envValue(env, "AIDEN_TRANSCRIPTION_MODEL", "RICKY_TRANSCRIPTION_MODEL") || "gpt-4o-mini-transcribe",

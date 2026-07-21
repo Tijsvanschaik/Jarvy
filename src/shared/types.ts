@@ -18,17 +18,35 @@ export type BlockSummary = {
 
 export type OogstNotitie = {
   id: string;
-  text: string;
-  tags?: string[];
-  createdAt: string;
+  deelnemer?: string;
+  type: "inzicht" | "aanname" | "vraag" | "vervolgstap" | "dilemma";
+  tekst: string;
+  block: string;
+  timestamp: string;
 };
 
 export type Signaal = {
   id: string;
-  kind: string;
-  text: string;
-  confidence?: number;
-  createdAt: string;
+  titel: string;
+  laag: 1 | 2 | 3;
+  domein: "zorg" | "mobiliteit" | "sociaal" | "energie" | "algemeen";
+  type: "hard" | "zacht";
+  kernfeit: string;
+  bron: string;
+  jaar: string;
+  beleidsvraag: string;
+  uitlegKort: string;
+  afbeelding?: string;
+};
+
+export type BoardPin = {
+  id: string;
+  signaalId?: string;
+  beeldPad?: string;
+  domein: Signaal["domein"];
+  notitie?: string;
+  pinnedAt: string;
+  signaal?: Signaal;
 };
 
 export type RecapDeck = {
@@ -49,7 +67,7 @@ export type AidenArtifact = {
     | "mermaid"
     | "image"
     | "imageLoading"
-    | "thumbnailBoard"
+    | "signalBoard"
     | "progress";
   content: string;
   language?: string;
